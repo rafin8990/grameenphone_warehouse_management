@@ -1,0 +1,44 @@
+import express from 'express';
+import { CategoryRoutes } from '../modules/categories/categories.route';
+import { ItemRoutes } from '../modules/items/items.route';
+import { LocationRoutes } from '../modules/locations/locations.route';
+import { PurchaseOrderRoutes } from '../modules/purchase-orders/purchase-orders.route';
+import { RequisitionRoutes } from '../modules/requisitions/requisitions.route';
+import { RfidRoutes } from '../modules/rfid/rfid.route';
+import { VendorRoutes } from '../modules/vendors/vendors.route';
+
+const router = express.Router();
+
+const moduleRoutes = [
+  {
+    path: '/categories',
+    routes: CategoryRoutes,
+  },
+  {
+    path: '/locations',
+    routes: LocationRoutes,
+  },
+  {
+    path: '/items',
+    routes: ItemRoutes,
+  },
+  {
+    path: '/vendors',
+    routes: VendorRoutes,
+  },
+  {
+    path: '/requisitions',
+    routes: RequisitionRoutes,
+  },
+  {
+    path: '/rfid',
+    routes: RfidRoutes,
+  },
+  {
+    path: '/purchase-orders',
+    routes: PurchaseOrderRoutes,
+  },
+];
+
+moduleRoutes.forEach(route => router.use(route.path, route.routes));
+export default router;
