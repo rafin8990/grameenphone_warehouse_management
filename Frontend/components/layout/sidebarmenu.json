@@ -29,6 +29,11 @@
             "href": "/items",
             "icon": "Package",
             "label": "Items"
+        },
+        {
+            "href": "/requisitions",
+            "icon": "ClipboardList",
+            "label": "Requisitions"
         }
     ]
 }

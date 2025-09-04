@@ -2,7 +2,7 @@ import { Breadcrumb } from "@/components/breadcrumb"
 
 interface PageHeaderProps {
   title: string
-  breadcrumbItems: { label: string; href: string }[]
+  breadcrumbItems?: { label: string; href: string }[]
   actions?: React.ReactNode
 }
 
@@ -17,7 +17,7 @@ export function PageHeader({ title, breadcrumbItems, actions }: PageHeaderProps)
           </div>
         )}
       </div>
-      <Breadcrumb items={breadcrumbItems} />
+      {breadcrumbItems && <Breadcrumb items={breadcrumbItems} />}
     </div>
   )
 }

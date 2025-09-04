@@ -6,10 +6,15 @@ interface BreadcrumbItem {
 }
 
 interface BreadcrumbProps {
-  items: BreadcrumbItem[]
+  items?: BreadcrumbItem[]
 }
 
 export function Breadcrumb({ items }: BreadcrumbProps) {
+  // Add default value and validation
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return null;
+  }
+
   return (
     <div className="text-sm">
       {items.map((item, index) => (

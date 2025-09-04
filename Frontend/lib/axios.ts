@@ -3,7 +3,7 @@ import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig, AxiosResp
 // Create axios instance with default config
 const instance: AxiosInstance = axios.create({
   // baseURL: 'http://188.166.232.67:3006/api/v1',
-  baseURL: process.env.NEXT_PUBLIC_API_URL,
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3006/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
