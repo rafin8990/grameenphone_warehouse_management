@@ -1,81 +1,112 @@
-import { Vendor } from "@/types/vendor"
-import api from "@/lib/axios"
+import axios from '../axios';
 
-interface FetchVendorsResponse {
-  data: Vendor[]
-  pagination: {
-    total: number
-    page: number
-    limit: number
-    totalPages: number
-  }
+export interface IVendor {
+  id?: number;
+  vendor_code: string;
+  name: string;
+  short_name?: string | null;
+  status: 'active' | 'inactive' | 'obsolete' | string;
+  org_code?: string | null;
+  fusion_vendor_id?: string | null;
+  tax_id?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  payment_terms?: string | null;
+  currency?: string | null;
+  credit_limit?: number | null;
+  created_at?: Date;
+  updated_at?: Date;
 }
 
-// Add response interceptor for error handling
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response) {
-      // The request was made and the server responded with a status code
-      // that falls out of the range of 2xx
-      throw new Error(error.response.data.message || "An error occurred")
-    } else if (error.request) {
-      // The request was made but no response was received
-      throw new Error("No response received from server")
-    } else {
-      // Something happened in setting up the request that triggered an Error
-      throw new Error("Error setting up request")
-    }
-  }
-)
-
-export async function fetchVendors(
-  page: number = 1,
-  limit: number = 10,
-  searchQuery: string = "",
-  sortBy: string = "created_at",
-  sortOrder: "ASC" | "DESC" = "DESC",
-  status?: string,
-  city?: string,
-  country?: string,
-  rating?: number
-): Promise<FetchVendorsResponse> {
-  const params = {
-    page,
-    limit,
-    sortBy,
-    sortOrder,
-    ...(status && { status }),
-    ...(city && { city }),
-    ...(country && { country }),
-    ...(rating && { rating }),
-    ...(searchQuery && { search: searchQuery }),
-  }
-
-  const response = await api.get<FetchVendorsResponse>("/vendors/all", { params })
-  return response.data
+export interface IVendorAddress {
+  id?: number;
+  vendor_id: number;
+  type: 'billing' | 'shipping' | 'head' | 'other' | string;
+  line1: string;
+  line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country: string;
+  is_default?: boolean | null;
+  attributes?: Record<string, any> | null;
+  created_at?: Date;
+  updated_at?: Date;
 }
 
-export async function searchVendors(query: string): Promise<FetchVendorsResponse> {
-  const response = await api.get<FetchVendorsResponse>(`/vendors/search?q=${query}`)
-  return response.data
+export interface IVendorWithAddresses extends IVendor {
+  addresses?: IVendorAddress[];
 }
 
-export async function fetchVendor(id: number): Promise<Vendor> {
-  const response = await api.get<Vendor>(`/vendors/${id}`)
-  return response.data
+export interface VendorQueryParams {
+  searchTerm?: string;
+  vendor_code?: string;
+  name?: string;
+  short_name?: string;
+  org_code?: string;
+  status?: 'active' | 'inactive' | 'obsolete';
+  fusion_vendor_id?: string;
+  tax_id?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  payment_terms?: string;
+  currency?: string;
+  credit_limit_min?: number;
+  credit_limit_max?: number;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
-export async function createVendor(vendor: Partial<Vendor>): Promise<Vendor> {
-  const response = await api.post<Vendor>("/vendors", vendor)
-  return response.data
+export interface VendorResponse {
+  success: boolean;
+  message: string;
+  data: IVendor[];
+  meta?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
-export async function updateVendor(id: number, vendor: Partial<Vendor>): Promise<Vendor> {
-  const response = await api.put<Vendor>(`/vendors/${id}`, vendor)
-  return response.data
+export interface SingleVendorResponse {
+  success: boolean;
+  message: string;
+  data: IVendor;
 }
 
-export async function deleteVendor(id: number): Promise<void> {
-  await api.delete(`/vendors/${id}`)
-}
+export const vendorApi = {
+  // Get all vendors with pagination and filters
+  getAll: async (params?: VendorQueryParams): Promise<VendorResponse> => {
+    const response = await axios.get('/vendors', { params });
+    return response.data;
+  },
+
+  // Get single vendor by ID
+  getById: async (id: number): Promise<SingleVendorResponse> => {
+    const response = await axios.get(`/vendors/${id}`);
+    return response.data;
+  },
+
+  // Create new vendor
+  create: async (data: Omit<IVendor, 'id' | 'created_at' | 'updated_at'>): Promise<SingleVendorResponse> => {
+    const response = await axios.post('/vendors', data);
+    return response.data;
+  },
+
+  // Update vendor
+  update: async (id: number, data: Partial<Omit<IVendor, 'id' | 'created_at' | 'updated_at'>>): Promise<SingleVendorResponse> => {
+    const response = await axios.patch(`/vendors/${id}`, data);
+    return response.data;
+  },
+
+  // Delete vendor
+  delete: async (id: number): Promise<{ success: boolean; message: string }> => {
+    const response = await axios.delete(`/vendors/${id}`);
+    return response.data;
+  },
+};
