@@ -94,7 +94,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 lg:gap-8 -mt-12 mx-4 md:mx-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 md:gap-6 lg:gap-8 -mt-12 mx-4 md:mx-6 mb-6">
         {metrics.map((metric: DashboardMetric) => (
           <Card key={metric.name} className="bg-white rounded-xl w-full shadow-lg">
             <CardContent className="p-4">

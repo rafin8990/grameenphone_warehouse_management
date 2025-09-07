@@ -11,13 +11,15 @@ import { RfidService } from './rfid.service';
 // Create RFID Tag
 const createRfidTag = catchAsync(async (req: Request, res: Response) => {
   const data = req.body;
-  const result = await RfidService.createRfidTag(data);
-  sendResponse<IRfidTag>(res, {
-    statusCode: httpStatus.CREATED,
-    success: true,
-    message: 'RFID tag created successfully',
-    data: result,
-  });
+  console.log(data)
+  // // console.log(req)
+  // const result = await RfidService.createRfidTag(data);
+  // sendResponse<IRfidTag>(res, {
+  //   statusCode: httpStatus.CREATED,
+  //   success: true,
+  //   message: 'RFID tag created successfully',
+  //   data: result,
+  // });
 });
 
 // Get All RFID Tags

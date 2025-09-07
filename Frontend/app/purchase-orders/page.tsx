@@ -1,0 +1,1232 @@
+"use client"
+
+import { useState, useEffect } from 'react'
+import { Plus, Search, Filter, Eye, Edit, Trash2, RefreshCw, Download } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Badge } from '@/components/ui/badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { useToast } from '@/hooks/use-toast'
+import { PageLayout } from '@/components/layout/page-layout'
+import { PageHeader } from '@/components/layout/page-header'
+import {
+  getAllPurchaseOrders,
+  createPurchaseOrder,
+  updatePurchaseOrder,
+  deletePurchaseOrder,
+  IPurchaseOrderComplete,
+  IPurchaseOrderFilters,
+  IPaginationOptions,
+  IPoItemWithRfid
+} from '@/lib/api/purchase-order'
+import { itemApi, IItem } from '@/lib/api/item'
+import { vendorApi, IVendor } from '@/lib/api/vendor'
+import { rfidApi, IRfidTag } from '@/lib/api/rfid'
+import { generatePurchaseOrderPDF } from '@/lib/utils/pdf-generator'
+
+const statusColors = {
+  pending: 'bg-yellow-100 text-yellow-800',
+  received: 'bg-green-100 text-green-800'
+}
+
+export default function PurchaseOrdersPage() {
+  const [purchaseOrders, setPurchaseOrders] = useState<IPurchaseOrderComplete[]>([])
+  const [loading, setLoading] = useState(true)
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [selectedPurchaseOrder, setSelectedPurchaseOrder] = useState<IPurchaseOrderComplete | null>(null)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [pagination, setPagination] = useState<IPaginationOptions>({
+    page: 1,
+    limit: 10
+  })
+  const [meta, setMeta] = useState<any>(null)
+  const { toast } = useToast()
+
+  // Form state
+  const [formData, setFormData] = useState<Partial<IPurchaseOrderComplete>>({
+    po_number: '',
+    vendor_id: 0,
+    total_amount: 0,
+    requisition_id: null,
+    status: 'pending'
+  })
+  
+  // Items state
+  const [purchaseOrderItems, setPurchaseOrderItems] = useState<IPoItemWithRfid[]>([])
+  const [availableItems, setAvailableItems] = useState<IItem[]>([])
+  const [availableVendors, setAvailableVendors] = useState<IVendor[]>([])
+  const [availableRfidTags, setAvailableRfidTags] = useState<IRfidTag[]>([])
+  const [itemsLoading, setItemsLoading] = useState(false)
+
+  useEffect(() => {
+    fetchPurchaseOrders()
+    fetchAvailableItems()
+    fetchAvailableVendors()
+    fetchAvailableRfidTags()
+  }, [searchTerm, statusFilter, pagination.page, pagination.limit])
+
+  const fetchAvailableItems = async () => {
+    try {
+      setItemsLoading(true)
+      const response = await itemApi.getAll({ limit: 1000, item_status: 'active' })
+      setAvailableItems(response.data)
+    } catch (error) {
+      console.error('Error fetching items:', error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch available items",
+        variant: "destructive"
+      })
+    } finally {
+      setItemsLoading(false)
+    }
+  }
+
+  const fetchAvailableVendors = async () => {
+    try {
+      const response = await vendorApi.getAll({ limit: 1000, status: 'active' })
+      setAvailableVendors(response.data)
+    } catch (error) {
+      console.error('Error fetching vendors:', error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch available vendors",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const fetchAvailableRfidTags = async () => {
+    try {
+      const response = await rfidApi.getAll({ limit: 1000, status: 'available' })
+      setAvailableRfidTags(response.data)
+    } catch (error) {
+      console.error('Error fetching RFID tags:', error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch available RFID tags",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const fetchPurchaseOrders = async () => {
+    try {
+      setLoading(true)
+      const filters: IPurchaseOrderFilters = {}
+      if (searchTerm) filters.searchTerm = searchTerm
+      if (statusFilter && statusFilter !== 'all') filters.status = statusFilter
+
+      const response = await getAllPurchaseOrders(filters, pagination)
+      setPurchaseOrders(response.data)
+      setMeta(response.meta)
+    } catch (error) {
+      console.error('Error fetching purchase orders:', error)
+      toast({
+        title: "Error",
+        description: "Failed to fetch purchase orders",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCreate = async () => {
+    // Validation
+    if (!formData.po_number?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Purchase order number is required",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    if (!formData.vendor_id || formData.vendor_id === 0) {
+      toast({
+        title: "Validation Error",
+        description: "Vendor is required",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    if (purchaseOrderItems.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "At least one item is required",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    // Validate that all items have required fields
+    for (let i = 0; i < purchaseOrderItems.length; i++) {
+      const item = purchaseOrderItems[i]
+      if (!item.item_id || !item.quantity) {
+        toast({
+          title: "Validation Error",
+          description: `Item ${i + 1} must have both item and quantity selected`,
+          variant: "destructive"
+        })
+        return
+      }
+    }
+    
+    try {
+      const purchaseOrderData = {
+        ...formData,
+        items: purchaseOrderItems
+      }
+      await createPurchaseOrder(purchaseOrderData)
+      toast({
+        title: "Success",
+        description: "Purchase order created successfully"
+      })
+      setIsCreateDialogOpen(false)
+      resetForm()
+      setPurchaseOrderItems([])
+      fetchPurchaseOrders()
+    } catch (error) {
+      console.error('Error creating purchase order:', error)
+      toast({
+        title: "Error",
+        description: "Failed to create purchase order",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleUpdate = async () => {
+    if (!selectedPurchaseOrder?.id) return
+    
+    // Validation
+    if (!formData.po_number?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Purchase order number is required",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    if (!formData.vendor_id || formData.vendor_id === 0) {
+      toast({
+        title: "Validation Error",
+        description: "Vendor is required",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    if (purchaseOrderItems.length === 0) {
+      toast({
+        title: "Validation Error",
+        description: "At least one item is required",
+        variant: "destructive"
+      })
+      return
+    }
+    
+    // Validate that all items have required fields
+    for (let i = 0; i < purchaseOrderItems.length; i++) {
+      const item = purchaseOrderItems[i]
+      if (!item.item_id || !item.quantity) {
+        toast({
+          title: "Validation Error",
+          description: `Item ${i + 1} must have both item and quantity selected`,
+          variant: "destructive"
+        })
+        return
+      }
+    }
+    
+    try {
+      const purchaseOrderData = {
+        ...formData,
+        items: purchaseOrderItems
+      }
+      await updatePurchaseOrder(selectedPurchaseOrder.id, purchaseOrderData)
+      toast({
+        title: "Success",
+        description: "Purchase order updated successfully"
+      })
+      setIsEditDialogOpen(false)
+      resetForm()
+      setPurchaseOrderItems([])
+      fetchPurchaseOrders()
+    } catch (error) {
+      console.error('Error updating purchase order:', error)
+      toast({
+        title: "Error",
+        description: "Failed to update purchase order",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!selectedPurchaseOrder?.id) return
+    
+    try {
+      await deletePurchaseOrder(selectedPurchaseOrder.id)
+      toast({
+        title: "Success",
+        description: "Purchase order deleted successfully"
+      })
+      setIsDeleteDialogOpen(false)
+      setSelectedPurchaseOrder(null)
+      fetchPurchaseOrders()
+    } catch (error) {
+      console.error('Error deleting purchase order:', error)
+      toast({
+        title: "Error",
+        description: "Failed to delete purchase order",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const handleDownloadPDF = async (purchaseOrder: IPurchaseOrderComplete) => {
+    try {
+      generatePurchaseOrderPDF(purchaseOrder)
+      toast({
+        title: "Success",
+        description: "PDF downloaded successfully"
+      })
+    } catch (error) {
+      console.error('Error downloading PDF:', error)
+      toast({
+        title: "Error",
+        description: "Failed to download PDF",
+        variant: "destructive"
+      })
+    }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      po_number: '',
+      vendor_id: 0,
+      total_amount: 0,
+      requisition_id: null,
+      status: 'pending'
+    })
+    setPurchaseOrderItems([])
+  }
+
+  const resetFilters = () => {
+    setSearchTerm('')
+    setStatusFilter('all')
+    setPagination({ page: 1, limit: 10 })
+  }
+
+  const addPurchaseOrderItem = () => {
+    const newItem: IPoItemWithRfid = {
+      po_id: 0, // Will be set by backend
+      item_id: 0,
+      quantity: 1,
+      unit: '',
+      rfid_tags: []
+    }
+    setPurchaseOrderItems([...purchaseOrderItems, newItem])
+  }
+
+  const removePurchaseOrderItem = (index: number) => {
+    setPurchaseOrderItems(purchaseOrderItems.filter((_, i) => i !== index))
+  }
+
+  const updatePurchaseOrderItem = (index: number, field: keyof IPoItemWithRfid, value: any) => {
+    const updatedItems = [...purchaseOrderItems]
+    updatedItems[index] = { ...updatedItems[index], [field]: value }
+    setPurchaseOrderItems(updatedItems)
+  }
+
+  const addRfidTagToItem = (itemIndex: number) => {
+    const updatedItems = [...purchaseOrderItems]
+    if (!updatedItems[itemIndex].rfid_tags) {
+      updatedItems[itemIndex].rfid_tags = []
+    }
+    updatedItems[itemIndex].rfid_tags!.push({
+      po_item_id: 0, // Will be set by backend
+      rfid_id: 0,
+      quantity: 1
+    })
+    setPurchaseOrderItems(updatedItems)
+  }
+
+  const removeRfidTagFromItem = (itemIndex: number, rfidIndex: number) => {
+    const updatedItems = [...purchaseOrderItems]
+    if (updatedItems[itemIndex].rfid_tags) {
+      updatedItems[itemIndex].rfid_tags = updatedItems[itemIndex].rfid_tags!.filter((_, i) => i !== rfidIndex)
+    }
+    setPurchaseOrderItems(updatedItems)
+  }
+
+  const updateRfidTag = (itemIndex: number, rfidIndex: number, field: keyof any, value: any) => {
+    const updatedItems = [...purchaseOrderItems]
+    if (updatedItems[itemIndex].rfid_tags) {
+      updatedItems[itemIndex].rfid_tags![rfidIndex] = {
+        ...updatedItems[itemIndex].rfid_tags![rfidIndex],
+        [field]: value
+      }
+    }
+    setPurchaseOrderItems(updatedItems)
+  }
+
+  const openEditDialog = (purchaseOrder: IPurchaseOrderComplete) => {
+    setSelectedPurchaseOrder(purchaseOrder)
+    setFormData({
+      po_number: purchaseOrder.po_number,
+      vendor_id: purchaseOrder.vendor_id,
+      total_amount: purchaseOrder.total_amount || 0,
+      requisition_id: purchaseOrder.requisition_id,
+      status: purchaseOrder.status
+    })
+    setPurchaseOrderItems(purchaseOrder.items || [])
+    setIsEditDialogOpen(true)
+  }
+
+  const openViewDialog = (purchaseOrder: IPurchaseOrderComplete) => {
+    setSelectedPurchaseOrder(purchaseOrder)
+    setIsViewDialogOpen(true)
+  }
+
+  const openDeleteDialog = (purchaseOrder: IPurchaseOrderComplete) => {
+    setSelectedPurchaseOrder(purchaseOrder)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const formatDate = (dateString: string | Date) => {
+    if (!dateString) return '-'
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    })
+  }
+
+  const formatCurrency = (amount: number | null | undefined) => {
+    if (!amount) return '-'
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(amount)
+  }
+
+  return (
+    <PageLayout activePage="purchase-orders">
+      <PageHeader
+        title="Purchase Orders"
+        breadcrumbItems={[
+          { label: "Dashboard", href: "/dashboard" },
+          { label: "Purchase Orders", href: "/purchase-orders" }
+        ]}
+        actions={
+          <Button
+            onClick={() => {
+              resetForm()
+              setIsCreateDialogOpen(true)
+            }}
+            className="bg-emerald-600 hover:bg-emerald-700"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create Purchase Order
+          </Button>
+        }
+      />
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+          <Input
+            placeholder="Search purchase orders..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="received">Received</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          onClick={resetFilters}
+          disabled={loading}
+        >
+          Reset
+        </Button>
+        <Button
+          variant="outline"
+          onClick={fetchPurchaseOrders}
+          disabled={loading}
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          Refresh
+        </Button>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-lg border shadow-sm">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>PO Number</TableHead>
+              <TableHead>Vendor</TableHead>
+              <TableHead>Total Amount</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Items Count</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8">
+                  <div className="flex items-center justify-center">
+                    <RefreshCw className="h-6 w-6 animate-spin text-gray-400 mr-2" />
+                    Loading purchase orders...
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : purchaseOrders.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                  No purchase orders found
+                </TableCell>
+              </TableRow>
+            ) : (
+              purchaseOrders.map((purchaseOrder) => (
+                <TableRow key={purchaseOrder.id}>
+                  <TableCell className="font-medium">
+                    {purchaseOrder.po_number}
+                  </TableCell>
+                  <TableCell>
+                    <div>
+                      <div className="font-medium">{purchaseOrder.vendor_name || '-'}</div>
+                      <div className="text-sm text-gray-500">{purchaseOrder.vendor_code || '-'}</div>
+                    </div>
+                  </TableCell>
+                  <TableCell>{formatCurrency(purchaseOrder.total_amount)}</TableCell>
+                  <TableCell>
+                    <Badge className={statusColors[purchaseOrder.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800'}>
+                      {purchaseOrder.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{purchaseOrder.items?.length || 0}</TableCell>
+                  <TableCell>{formatDate(purchaseOrder.created_at || '')}</TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDownloadPDF(purchaseOrder)}
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        title="Download PDF"
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openViewDialog(purchaseOrder)}
+                        className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEditDialog(purchaseOrder)}
+                        className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openDeleteDialog(purchaseOrder)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Pagination */}
+      {meta && (
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-700">
+            Showing {((meta.page - 1) * meta.limit) + 1} to {Math.min(meta.page * meta.limit, meta.total)} of {meta.total} results
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination(prev => ({ ...prev, page: prev.page! - 1 }))}
+              disabled={!meta.hasPrev}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination(prev => ({ ...prev, page: prev.page! + 1 }))}
+              disabled={!meta.hasNext}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Create Dialog */}
+      <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Create New Purchase Order</DialogTitle>
+            <DialogDescription>
+              Fill in the details to create a new purchase order
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="po_number">PO Number *</Label>
+              <Input
+                id="po_number"
+                value={formData.po_number}
+                onChange={(e) => setFormData(prev => ({ ...prev, po_number: e.target.value }))}
+                placeholder="Enter PO number"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="vendor_id">Vendor *</Label>
+              <Select 
+                value={formData.vendor_id?.toString() || ''} 
+                onValueChange={(value) => setFormData(prev => ({ ...prev, vendor_id: parseInt(value) }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select vendor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableVendors.map((vendor) => (
+                    <SelectItem key={vendor.id} value={vendor.id?.toString() || ''}>
+                      {vendor.name} - {vendor.vendor_code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="total_amount">Total Amount</Label>
+              <Input
+                id="total_amount"
+                type="number"
+                step="0.01"
+                value={formData.total_amount || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, total_amount: parseFloat(e.target.value) || 0 }))}
+                placeholder="Enter total amount"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="status">Status *</Label>
+              <Select value={formData.status} onValueChange={(value) => setFormData(prev => ({ ...prev, status: value as 'pending' | 'received' }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="received">Received</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Purchase Order Items Section */}
+            <div className="col-span-2 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-base font-medium">Purchase Order Items</Label>
+                  {purchaseOrderItems.length > 0 && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Total: {purchaseOrderItems.length} item(s) | 
+                      Quantity: {purchaseOrderItems.reduce((sum, item) => sum + (item.quantity || 0), 0)}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addPurchaseOrderItem}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Item
+                </Button>
+              </div>
+              
+              {purchaseOrderItems.length === 0 ? (
+                <div className="text-center py-6 text-gray-500 border-2 border-dashed border-gray-200 rounded-lg">
+                  No items added. Click "Add Item" to start.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {purchaseOrderItems.map((item, index) => (
+                    <div key={index} className="p-4 border rounded-lg bg-gray-50 space-y-4">
+                      {/* Item Details */}
+                      <div className="grid grid-cols-4 gap-3">
+                        <div className="col-span-2">
+                          <Label className="text-sm">Item *</Label>
+                          <Select
+                            value={item.item_id?.toString() || ''}
+                            onValueChange={(value) => updatePurchaseOrderItem(index, 'item_id', parseInt(value))}
+                            disabled={itemsLoading}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder={itemsLoading ? "Loading items..." : "Select item"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {itemsLoading ? (
+                                <SelectItem value="" disabled>
+                                  Loading items...
+                                </SelectItem>
+                              ) : (
+                                availableItems.map((availableItem) => (
+                                  <SelectItem key={availableItem.id} value={availableItem.id?.toString() || ''}>
+                                    {availableItem.item_code} - {availableItem.item_description || 'No description'}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-sm">Quantity *</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) => updatePurchaseOrderItem(index, 'quantity', parseInt(e.target.value) || 1)}
+                            placeholder="Qty"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-sm">Unit</Label>
+                          <Input
+                            value={item.unit || ''}
+                            onChange={(e) => updatePurchaseOrderItem(index, 'unit', e.target.value)}
+                            placeholder="Unit"
+                          />
+                        </div>
+                      </div>
+
+                      {/* RFID Tags Section */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm font-medium">RFID Tags</Label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => addRfidTagToItem(index)}
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            Add RFID
+                          </Button>
+                        </div>
+                        
+                        {item.rfid_tags && item.rfid_tags.length > 0 ? (
+                          <div className="space-y-2">
+                            {item.rfid_tags.map((rfid, rfidIndex) => (
+                              <div key={rfidIndex} className="grid grid-cols-3 gap-2 p-2 border rounded bg-white">
+                                <div>
+                                  <Label className="text-xs">RFID Tag *</Label>
+                                  <Select
+                                    value={rfid.rfid_id?.toString() || ''}
+                                    onValueChange={(value) => updateRfidTag(index, rfidIndex, 'rfid_id', parseInt(value))}
+                                  >
+                                    <SelectTrigger className="h-8">
+                                      <SelectValue placeholder="Select RFID" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {availableRfidTags.map((rfidTag) => (
+                                        <SelectItem key={rfidTag.id} value={rfidTag.id?.toString() || ''}>
+                                          {rfidTag.tag_uid} ({rfidTag.status})
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs">Quantity *</Label>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={rfid.quantity}
+                                    onChange={(e) => updateRfidTag(index, rfidIndex, 'quantity', parseInt(e.target.value) || 1)}
+                                    placeholder="Qty"
+                                    className="h-8"
+                                  />
+                                </div>
+                                <div className="flex items-end">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => removeRfidTagFromItem(index, rfidIndex)}
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-2 text-gray-500 text-sm border-2 border-dashed border-gray-200 rounded">
+                            No RFID tags added. Click "Add RFID" to start.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Remove Item Button */}
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removePurchaseOrderItem(index)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Remove Item
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreate} className="bg-emerald-600 hover:bg-emerald-700">
+              Create Purchase Order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Edit Purchase Order</DialogTitle>
+            <DialogDescription>
+              Update the purchase order details
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit_po_number">PO Number *</Label>
+              <Input
+                id="edit_po_number"
+                value={formData.po_number}
+                onChange={(e) => setFormData(prev => ({ ...prev, po_number: e.target.value }))}
+                placeholder="Enter PO number"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_vendor_id">Vendor *</Label>
+              <Select 
+                value={formData.vendor_id?.toString() || ''} 
+                onValueChange={(value) => setFormData(prev => ({ ...prev, vendor_id: parseInt(value) }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select vendor" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableVendors.map((vendor) => (
+                    <SelectItem key={vendor.id} value={vendor.id?.toString() || ''}>
+                      {vendor.name} - {vendor.vendor_code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_total_amount">Total Amount</Label>
+              <Input
+                id="edit_total_amount"
+                type="number"
+                step="0.01"
+                value={formData.total_amount || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, total_amount: parseFloat(e.target.value) || 0 }))}
+                placeholder="Enter total amount"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit_status">Status *</Label>
+              <Select value={formData.status} onValueChange={(value) => setFormData(prev => ({ ...prev, status: value as 'pending' | 'received' }))}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="received">Received</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Purchase Order Items Section */}
+            <div className="col-span-2 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-base font-medium">Purchase Order Items</Label>
+                  {purchaseOrderItems.length > 0 && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      Total: {purchaseOrderItems.length} item(s) | 
+                      Quantity: {purchaseOrderItems.reduce((sum, item) => sum + (item.quantity || 0), 0)}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addPurchaseOrderItem}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Item
+                </Button>
+              </div>
+              
+              {purchaseOrderItems.length === 0 ? (
+                <div className="text-center py-6 text-gray-500 border-2 border-dashed border-gray-200 rounded-lg">
+                  No items added. Click "Add Item" to start.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {purchaseOrderItems.map((item, index) => (
+                    <div key={index} className="p-4 border rounded-lg bg-gray-50 space-y-4">
+                      {/* Item Details */}
+                      <div className="grid grid-cols-4 gap-3">
+                        <div className="col-span-2">
+                          <Label className="text-sm">Item *</Label>
+                          <Select
+                            value={item.item_id?.toString() || ''}
+                            onValueChange={(value) => updatePurchaseOrderItem(index, 'item_id', parseInt(value))}
+                            disabled={itemsLoading}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder={itemsLoading ? "Loading items..." : "Select item"} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {itemsLoading ? (
+                                <SelectItem value="" disabled>
+                                  Loading items...
+                                </SelectItem>
+                              ) : (
+                                availableItems.map((availableItem) => (
+                                  <SelectItem key={availableItem.id} value={availableItem.id?.toString() || ''}>
+                                    {availableItem.item_code} - {availableItem.item_description || 'No description'}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-sm">Quantity *</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(e) => updatePurchaseOrderItem(index, 'quantity', parseInt(e.target.value) || 1)}
+                            placeholder="Qty"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-sm">Unit</Label>
+                          <Input
+                            value={item.unit || ''}
+                            onChange={(e) => updatePurchaseOrderItem(index, 'unit', e.target.value)}
+                            placeholder="Unit"
+                          />
+                        </div>
+                      </div>
+
+                      {/* RFID Tags Section */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm font-medium">RFID Tags</Label>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => addRfidTagToItem(index)}
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            Add RFID
+                          </Button>
+                        </div>
+                        
+                        {item.rfid_tags && item.rfid_tags.length > 0 ? (
+                          <div className="space-y-2">
+                            {item.rfid_tags.map((rfid, rfidIndex) => (
+                              <div key={rfidIndex} className="grid grid-cols-3 gap-2 p-2 border rounded bg-white">
+                                <div>
+                                  <Label className="text-xs">RFID Tag *</Label>
+                                  <Select
+                                    value={rfid.rfid_id?.toString() || ''}
+                                    onValueChange={(value) => updateRfidTag(index, rfidIndex, 'rfid_id', parseInt(value))}
+                                  >
+                                    <SelectTrigger className="h-8">
+                                      <SelectValue placeholder="Select RFID" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {availableRfidTags.map((rfidTag) => (
+                                        <SelectItem key={rfidTag.id} value={rfidTag.id?.toString() || ''}>
+                                          {rfidTag.tag_uid} ({rfidTag.status})
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-xs">Quantity *</Label>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={rfid.quantity}
+                                    onChange={(e) => updateRfidTag(index, rfidIndex, 'quantity', parseInt(e.target.value) || 1)}
+                                    placeholder="Qty"
+                                    className="h-8"
+                                  />
+                                </div>
+                                <div className="flex items-end">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => removeRfidTagFromItem(index, rfidIndex)}
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-2 text-gray-500 text-sm border-2 border-dashed border-gray-200 rounded">
+                            No RFID tags added. Click "Add RFID" to start.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Remove Item Button */}
+                      <div className="flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => removePurchaseOrderItem(index)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4 mr-1" />
+                          Remove Item
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdate} className="bg-emerald-600 hover:bg-emerald-700">
+              Update Purchase Order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* View Dialog */}
+      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Purchase Order Details</DialogTitle>
+            <DialogDescription>
+              View complete purchase order information
+            </DialogDescription>
+          </DialogHeader>
+          {selectedPurchaseOrder && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">PO Number</Label>
+                  <p className="text-lg font-semibold">{selectedPurchaseOrder.po_number}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Status</Label>
+                  <Badge className={`mt-1 ${statusColors[selectedPurchaseOrder.status as keyof typeof statusColors] || 'bg-gray-100 text-gray-800'}`}>
+                    {selectedPurchaseOrder.status}
+                  </Badge>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Vendor</Label>
+                  <p className="text-base">{selectedPurchaseOrder.vendor_name || '-'}</p>
+                  <p className="text-sm text-gray-500">{selectedPurchaseOrder.vendor_code || '-'}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Total Amount</Label>
+                  <p className="text-base font-semibold">{formatCurrency(selectedPurchaseOrder.total_amount)}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Created At</Label>
+                  <p className="text-base">{formatDate(selectedPurchaseOrder.created_at || '')}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Updated At</Label>
+                  <p className="text-base">{formatDate(selectedPurchaseOrder.updated_at || '')}</p>
+                </div>
+              </div>
+
+              {/* Items Section */}
+              {selectedPurchaseOrder.items && selectedPurchaseOrder.items.length > 0 && (
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Purchase Order Items</Label>
+                  <div className="mt-2 space-y-4">
+                    {selectedPurchaseOrder.items.map((item, itemIndex) => (
+                      <div key={item.id} className="border rounded-lg p-4 bg-gray-50">
+                        <div className="grid grid-cols-4 gap-4 mb-3">
+                          <div>
+                            <Label className="text-xs font-medium text-gray-500">Item Code</Label>
+                            <p className="text-sm font-medium">{item.item_code || '-'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-medium text-gray-500">Description</Label>
+                            <p className="text-sm">{item.item_description || '-'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-medium text-gray-500">Quantity</Label>
+                            <p className="text-sm">{item.quantity}</p>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-medium text-gray-500">Unit</Label>
+                            <p className="text-sm">{item.unit || item.uom_primary || '-'}</p>
+                          </div>
+                        </div>
+                        
+                        {/* RFID Tags for this item */}
+                        {item.rfid_tags && item.rfid_tags.length > 0 && (
+                          <div className="mt-3">
+                            <Label className="text-xs font-medium text-gray-500">RFID Tags</Label>
+                            <div className="mt-1 space-y-1">
+                              {item.rfid_tags.map((rfid, rfidIndex) => (
+                                <div key={rfidIndex} className="flex items-center justify-between bg-white p-2 rounded border text-xs">
+                                  <span className="font-medium">{rfid.tag_uid || `RFID ${rfid.rfid_id}`}</span>
+                                  <span className="text-gray-500">Qty: {rfid.quantity}</span>
+                                  <Badge variant="outline" className="text-xs">
+                                    {rfid.rfid_status || 'Unknown'}
+                                  </Badge>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
+              Close
+            </Button>
+            <Button 
+              onClick={() => selectedPurchaseOrder && handleDownloadPDF(selectedPurchaseOrder)}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Purchase Order</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this purchase order? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleDelete} variant="destructive">
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </PageLayout>
+  )
+}

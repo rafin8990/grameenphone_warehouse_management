@@ -13,7 +13,6 @@ export const run = async () => {
           UNIQUE(item_id, location_id)
         );
 
-        -- quick lookup
         CREATE INDEX idx_stock_balances_item ON stock_balances (item_id);
         CREATE INDEX idx_stock_balances_loc ON stock_balances (location_id);
   `);

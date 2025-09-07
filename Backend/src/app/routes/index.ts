@@ -1,5 +1,6 @@
 import express from 'express';
 import { CategoryRoutes } from '../modules/categories/categories.route';
+import { DashboardRoutes } from '../modules/dashboard/dashboard.routes';
 import { ItemRoutes } from '../modules/items/items.route';
 import { LocationRoutes } from '../modules/locations/locations.route';
 import { PurchaseOrderRoutes } from '../modules/purchase-orders/purchase-orders.route';
@@ -10,6 +11,10 @@ import { VendorRoutes } from '../modules/vendors/vendors.route';
 const router = express.Router();
 
 const moduleRoutes = [
+  {
+    path: '/dashboard',
+    routes: DashboardRoutes,
+  },
   {
     path: '/categories',
     routes: CategoryRoutes,

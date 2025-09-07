@@ -17,6 +17,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.use('/api/v1', routes);
+app.use('/api/v1/rfid',
+  express.json({ type: ['application/json', 'application/*+json', 'text/plain'] }),
+  express.urlencoded({ extended: true }),
+);
 
 // Health check endpoint for dashboard
 app.get('/api/v1/health', (req: Request, res: Response) => {
@@ -61,6 +65,15 @@ app.get('/api/v1/system/metrics', (req: Request, res: Response) => {
       }
     }
   });
+});
+
+app.all('/api/v1/rfid', (req: Request, res: Response) => {
+  console.log('RFID HIT >>>');
+  console.log('Method:', req.method);
+  console.log('Content-Type:', req.headers['content-type']);
+  console.log('Query:', req.query);
+  console.log('Body:', req.body);   // JSON or form fields appear here
+  res.status(200).send('ok');
 });
 
 // API documentation endpoint for dashboard
