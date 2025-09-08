@@ -12,21 +12,20 @@ const createRfidTag = async (data: IRfidTag): Promise<IRfidTag | null> => {
     await client.query('BEGIN');
 
     const insertQuery = `
-      INSERT INTO rfid_tags 
-        (tag_uid, status)
+      INSERT INTO rfid_tags (tag_uid, status)
       VALUES ($1, $2)
+      ON CONFLICT (tag_uid) DO NOTHING
       RETURNING *;
     `;
 
     const values = [
       data.tag_uid,
-      data.status ?? 'available', // Default status is available
+      data.status ?? 'available',
     ];
 
     const result = await client.query(insertQuery, values);
-
     await client.query('COMMIT');
-    return result.rows[0];
+    return result.rows[0] || null;
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
