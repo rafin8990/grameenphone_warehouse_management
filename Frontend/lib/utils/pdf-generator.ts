@@ -94,6 +94,32 @@ export const generatePurchaseOrderPDF = (purchaseOrder: IPurchaseOrderComplete):
       doc.text('$0.00', 185, yPosition) // Placeholder for total
       
       yPosition += 8
+      
+      // Display RFID tags for this item
+      if (item.rfid_tags && item.rfid_tags.length > 0) {
+        doc.setFontSize(8)
+        doc.setFont('helvetica', 'italic')
+        doc.setTextColor(100, 100, 100) // Gray color for RFID info
+        
+        // RFID header
+        doc.text('RFID Tags:', 25, yPosition)
+        yPosition += 6
+        
+        // Display each RFID tag
+        item.rfid_tags.forEach((rfid, rfidIndex) => {
+          if (yPosition > 250) {
+            doc.addPage()
+            yPosition = 20
+          }
+          
+          const rfidInfo = `• ${rfid.tag_uid || 'N/A'} (Qty: ${rfid.quantity}, Status: ${rfid.rfid_status || 'N/A'})`
+          doc.text(rfidInfo, 30, yPosition)
+          yPosition += 5
+        })
+        
+        yPosition += 3 // Extra space after RFID tags
+        doc.setTextColor(0, 0, 0) // Reset to black
+      }
     })
   } else {
     doc.setFontSize(10)
