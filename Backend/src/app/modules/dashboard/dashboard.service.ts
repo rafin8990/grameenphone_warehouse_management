@@ -9,6 +9,8 @@ interface DashboardStats {
   totalVendors: number;
   totalItems: number;
   totalAvailableRequisitions: number;
+  totalPurchaseOrders: number;
+  pendingPurchaseOrders: number;
 }
 
 interface DashboardData {
@@ -100,6 +102,16 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
     const requisitionsResult = await pool.query(requisitionsQuery, ['open']);
     const totalAvailableRequisitions = parseInt(requisitionsResult.rows[0].count, 10);
 
+    // Get total purchase orders
+    const purchaseOrdersQuery = 'SELECT COUNT(*) as count FROM purchase_orders';
+    const purchaseOrdersResult = await pool.query(purchaseOrdersQuery);
+    const totalPurchaseOrders = parseInt(purchaseOrdersResult.rows[0].count, 10);
+
+    // Get pending purchase orders
+    const pendingPurchaseOrdersQuery = 'SELECT COUNT(*) as count FROM purchase_orders WHERE status = $1';
+    const pendingPurchaseOrdersResult = await pool.query(pendingPurchaseOrdersQuery, ['pending']);
+    const pendingPurchaseOrders = parseInt(pendingPurchaseOrdersResult.rows[0].count, 10);
+
     console.log('Dashboard Stats:', {
       totalCategories,
       totalLocations,
@@ -107,6 +119,8 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
       totalVendors,
       totalItems,
       totalAvailableRequisitions,
+      totalPurchaseOrders,
+      pendingPurchaseOrders,
     });
 
     return {
@@ -116,6 +130,8 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
       totalVendors,
       totalItems,
       totalAvailableRequisitions,
+      totalPurchaseOrders,
+      pendingPurchaseOrders,
     };
   } catch (error) {
     console.error('Error fetching dashboard statistics:', error);
@@ -242,6 +258,18 @@ const getDashboardData = async (): Promise<DashboardData> => {
           value: stats.totalAvailableRequisitions,
           icon: "/dashboard/readers.svg",
           label: "Available Requisitions"
+        },
+        {
+          name: "purchase_orders",
+          value: stats.totalPurchaseOrders,
+          icon: "/dashboard/vendors.svg",
+          label: "Total Purchase Orders"
+        },
+        {
+          name: "pending_purchase_orders",
+          value: stats.pendingPurchaseOrders,
+          icon: "/dashboard/readers.svg",
+          label: "Pending Purchase Orders"
         }
       ],
       topAssetCategories: topCategories,

@@ -10,6 +10,7 @@ import { AssetQuantityCard } from "@/components/charts/AssetQuantityCard"
 import { ServiceScheduleStatusCard } from "@/components/charts/ServiceScheduleStatusCard"
 import { TopAssetCategories } from "@/components/charts/TopAssetCategories"
 import { DashboardAssetTable } from "@/components/dashboard/assetTable"
+import { PurchaseOrdersTable } from "@/components/dashboard/purchaseOrdersTable"
 import { Asset } from "@/types/asset"
 import { fetchAssets } from "@/lib/api/asset"
 import { toast } from "sonner"
@@ -168,6 +169,11 @@ export default function DashboardPage() {
         <AssetPerformanceCard value={assetPerformance.value} status={assetPerformance.status} statusIcon={assetPerformance.statusIcon} chart={assetPerformance.chart} />
         <AssetQuantityCard value={assetQuantity.value} status={assetQuantity.status} statusIcon={assetQuantity.statusIcon} chart={assetQuantity.chart} />
         <ServiceScheduleStatusCard labels={serviceScheduleStatus.labels} data={serviceScheduleStatus.data} />
+      </div>
+
+      {/* Purchase Orders Section */}
+      <div className="mb-8">
+        <PurchaseOrdersTable limit={5} showViewAll={true} />
       </div>
 
       {/* Assets Table */}
