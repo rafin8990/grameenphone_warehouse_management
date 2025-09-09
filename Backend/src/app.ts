@@ -67,16 +67,7 @@ app.get('/api/v1/system/metrics', (req: Request, res: Response) => {
   });
 });
 
-app.all('/api/v1/rfid', (req: Request, res: Response) => {
-  console.log('RFID HIT >>>');
-  console.log('Method:', req.method);
-  console.log('Content-Type:', req.headers['content-type']);
-  console.log('Query:', req.query);
-  console.log('Body:', req.body);   // JSON or form fields appear here
-  res.status(200).send('ok');
-});
 
-// API documentation endpoint for dashboard
 app.get('/api/v1/docs', (req: Request, res: Response) => {
   res.status(httpStatus.OK).json({
     success: true,
