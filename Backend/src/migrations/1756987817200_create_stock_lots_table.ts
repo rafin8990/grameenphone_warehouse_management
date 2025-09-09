@@ -5,7 +5,7 @@ export const name = '1756987817200_create_stock_lots_table';
 export const run = async () => {
   // Write your SQL query here
   await pool.query(`
-    CREATE TABLE stock_lots (
+    CREATE TABLE IF NOT EXISTS stock_lots (
       id              BIGSERIAL PRIMARY KEY,
       item_id         BIGINT NOT NULL REFERENCES items(id) ON DELETE RESTRICT,
       location_id     BIGINT NOT NULL REFERENCES locations(id) ON DELETE RESTRICT,

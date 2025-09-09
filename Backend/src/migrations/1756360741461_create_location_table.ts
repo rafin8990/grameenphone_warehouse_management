@@ -5,7 +5,7 @@ export const name = '1756360741461_create_location_table';
 export const run = async () => {
   // Write your SQL query here
   await pool.query(`
-    CREATE TABLE locations (
+    CREATE TABLE IF NOT EXISTS locations (
     id BIGSERIAL PRIMARY KEY,
     sub_inventory_code VARCHAR(50) NOT NULL,
     locator_code VARCHAR(50) NOT NULL,

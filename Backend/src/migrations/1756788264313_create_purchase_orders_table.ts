@@ -5,7 +5,7 @@ export const name = '1756788264313_create_purchase_orders_table';
 export const run = async () => {
   // Write your SQL query here
   await pool.query(`
-    CREATE TABLE purchase_orders (
+    CREATE TABLE IF NOT EXISTS purchase_orders (
      id BIGSERIAL PRIMARY KEY,
      po_number VARCHAR(60) NOT NULL UNIQUE,
      vendor_id BIGINT NOT NULL REFERENCES vendors(id),
@@ -17,7 +17,7 @@ export const run = async () => {
  );
    `);
   await pool.query(`
-    CREATE TABLE po_items (
+    CREATE TABLE IF NOT EXISTS po_items (
      id BIGSERIAL PRIMARY KEY,
      po_id BIGINT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
      item_id BIGINT NOT NULL REFERENCES items(id),
@@ -26,7 +26,7 @@ export const run = async () => {
  );
    `);
   await pool.query(`
-    CREATE TABLE po_items_rfid (
+    CREATE TABLE IF NOT EXISTS po_items_rfid (
      id BIGSERIAL PRIMARY KEY,
      po_item_id BIGINT NOT NULL REFERENCES po_items(id) ON DELETE CASCADE,
      rfid_id BIGINT NOT NULL REFERENCES rfid_tags(id),

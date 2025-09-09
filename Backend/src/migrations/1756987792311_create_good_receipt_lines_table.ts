@@ -5,7 +5,7 @@ export const name = '1756987792311_create_good_receipt_lines_table';
 export const run = async () => {
   // Write your SQL query here
   await pool.query(`
-    CREATE TABLE goods_receipt_lines (
+    CREATE TABLE IF NOT EXISTS goods_receipt_lines (
       id             BIGSERIAL PRIMARY KEY,
       receipt_id     BIGINT NOT NULL REFERENCES goods_receipts(id) ON DELETE CASCADE,
       po_item_id     BIGINT REFERENCES po_items(id) ON DELETE SET NULL,

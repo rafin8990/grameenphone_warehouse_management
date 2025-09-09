@@ -5,7 +5,7 @@ export const name = '1756376105073_create_vendors_table';
 export const run = async () => {
   // Write your SQL query here
   await pool.query(`
-   CREATE TABLE vendors (
+   CREATE TABLE IF NOT EXISTS vendors (
     id BIGSERIAL PRIMARY KEY,
     vendor_code VARCHAR(60) NOT NULL,
     name VARCHAR(200) NOT NULL,
@@ -26,7 +26,7 @@ export const run = async () => {
 );
   `);
   await pool.query(`
-  CREATE TABLE vendor_addresses (
+  CREATE TABLE IF NOT EXISTS vendor_addresses (
     id BIGSERIAL PRIMARY KEY,
     vendor_id BIGINT NOT NULL REFERENCES vendors(id) ON DELETE CASCADE,
     type VARCHAR(20) NOT NULL CHECK (type IN ('billing','shipping','head','other')),

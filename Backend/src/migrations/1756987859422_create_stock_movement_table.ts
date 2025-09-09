@@ -5,7 +5,7 @@ export const name = '1756987859422_create_stock_movement_table';
 export const run = async () => {
   // Write your SQL query here
   await pool.query(`
-    CREATE TABLE stock_movements (
+    CREATE TABLE IF NOT EXISTS stock_movements (
       id              BIGSERIAL PRIMARY KEY,
       movement_type   VARCHAR(20) NOT NULL
                       CHECK (movement_type IN ('IN','OUT','ADJUST_IN','ADJUST_OUT','TRANSFER_OUT','TRANSFER_IN')),

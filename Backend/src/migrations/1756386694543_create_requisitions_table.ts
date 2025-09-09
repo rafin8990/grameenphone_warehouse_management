@@ -5,7 +5,7 @@ export const name = '1756386694543_create_requisitions_table';
 export const run = async () => {
   // Write your SQL query here
   await pool.query(`
-    CREATE TABLE requisitions (
+    CREATE TABLE IF NOT EXISTS requisitions (
     id BIGSERIAL PRIMARY KEY,
     requisition_number VARCHAR(50) NOT NULL UNIQUE,
     requester_name VARCHAR(100),
@@ -17,7 +17,7 @@ export const run = async () => {
 );
   `);
   await pool.query(`
-   CREATE TABLE requisition_items (
+   CREATE TABLE IF NOT EXISTS requisition_items (
     id BIGSERIAL PRIMARY KEY,
     requisition_id BIGINT NOT NULL REFERENCES requisitions(id) ON DELETE CASCADE,
     item_id BIGINT NOT NULL REFERENCES items(id) ON DELETE RESTRICT,

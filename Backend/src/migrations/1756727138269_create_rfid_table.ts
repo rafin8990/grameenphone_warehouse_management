@@ -5,7 +5,7 @@ export const name = '1756727138269_create_rfid_table';
 export const run = async () => {
   // Write your SQL query here
   await pool.query(`
-   CREATE TABLE rfid_tags (
+   CREATE TABLE IF NOT EXISTS rfid_tags (
       id            BIGSERIAL PRIMARY KEY,
       tag_uid       VARCHAR(64) UNIQUE NOT NULL,
       status        VARCHAR(16) NOT NULL DEFAULT 'available'

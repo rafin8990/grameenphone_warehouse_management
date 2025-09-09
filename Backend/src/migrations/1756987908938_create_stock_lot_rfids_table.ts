@@ -5,7 +5,7 @@ export const name = '1756987908938_create_stock_lot_rfids_table';
 export const run = async () => {
   // Write your SQL query here
   await pool.query(`
-    CREATE TABLE stock_lot_rfids (
+    CREATE TABLE IF NOT EXISTS stock_lot_rfids (
         id        BIGSERIAL PRIMARY KEY,
         lot_id    BIGINT NOT NULL REFERENCES stock_lots(id) ON DELETE CASCADE,
         rfid_id   BIGINT NOT NULL REFERENCES rfid_tags(id) ON DELETE RESTRICT,
