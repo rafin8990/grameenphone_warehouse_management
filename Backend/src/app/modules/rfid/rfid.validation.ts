@@ -4,20 +4,20 @@ import { z } from 'zod';
 const createRfidTagZodSchema = z.object({
   body: z.object({
     tag_uid: z
-      .string({
-        required_error: 'Tag UID is required',
-      })
+      .string({ required_error: 'Tag UID is required' })
       .min(1, 'Tag UID must not be empty')
       .max(64, 'Tag UID must not exceed 64 characters'),
     status: z
       .enum(['available', 'reserved', 'assigned', 'consumed', 'lost', 'damaged'], {
         errorMap: () => ({
-          message: 'Status must be one of: available, reserved, assigned, consumed, lost, damaged',
+          message:
+            'Status must be one of: available, reserved, assigned, consumed, lost, damaged',
         }),
       })
       .default('available'),
   }),
 });
+
 
 // Update RFID tag validation schema
 const updateRfidTagZodSchema = z.object({

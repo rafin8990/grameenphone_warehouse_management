@@ -11,7 +11,9 @@ import { RfidService } from './rfid.service';
 // Create RFID Tag
 const createRfidTag = catchAsync(async (req: Request, res: Response) => {
   const data = req.body;
+
   const result = await RfidService.createRfidTag(data);
+
   sendResponse<IRfidTag>(res, {
     statusCode: httpStatus.CREATED,
     success: true,
@@ -34,11 +36,7 @@ const createRfidTag = catchAsync(async (req: Request, res: Response) => {
 
 // Get All RFID Tags
 const getAllRfidTags = catchAsync(async (req: Request, res: Response) => {
-  const rawFilters = pick(req.query, [
-    'searchTerm',
-    'tag_uid',
-    'status',
-  ]);
+  const rawFilters = pick(req.query, ['searchTerm', 'tag_uid', 'status']);
   const paginationOptions = pick(req.query, paginationFields);
 
   const result = await RfidService.getAllRfidTags(

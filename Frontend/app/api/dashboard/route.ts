@@ -70,6 +70,18 @@ export async function GET() {
           value: 0,
           icon: "/dashboard/readers.svg",
           label: "Available Requisitions"
+        },
+        {
+          name: "purchase_orders",
+          value: 0,
+          icon: "/dashboard/vendors.svg",
+          label: "Total Purchase Orders"
+        },
+        {
+          name: "pending_purchase_orders",
+          value: 0,
+          icon: "/dashboard/readers.svg",
+          label: "Pending Purchase Orders"
         }
       ],
       topAssetCategories: {

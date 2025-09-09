@@ -204,9 +204,22 @@ export default function PurchaseOrdersPage() {
     }
     
     try {
+      // Convert string values to proper types for backend validation
       const purchaseOrderData = {
         ...formData,
-        items: purchaseOrderItems
+        vendor_id: Number(formData.vendor_id),
+        total_amount: formData.total_amount ? Number(formData.total_amount) : null,
+        requisition_id: formData.requisition_id ? Number(formData.requisition_id) : null,
+        items: purchaseOrderItems.map(item => ({
+          ...item,
+          item_id: Number(item.item_id),
+          quantity: Number(item.quantity),
+          rfid_tags: item.rfid_tags?.map(rfid => ({
+            ...rfid,
+            rfid_id: Number(rfid.rfid_id),
+            quantity: Number(rfid.quantity)
+          })) || []
+        }))
       }
       await createPurchaseOrder(purchaseOrderData)
       toast({
@@ -272,9 +285,22 @@ export default function PurchaseOrdersPage() {
     }
     
     try {
+      // Convert string values to proper types for backend validation
       const purchaseOrderData = {
         ...formData,
-        items: purchaseOrderItems
+        vendor_id: Number(formData.vendor_id),
+        total_amount: formData.total_amount ? Number(formData.total_amount) : null,
+        requisition_id: formData.requisition_id ? Number(formData.requisition_id) : null,
+        items: purchaseOrderItems.map(item => ({
+          ...item,
+          item_id: Number(item.item_id),
+          quantity: Number(item.quantity),
+          rfid_tags: item.rfid_tags?.map(rfid => ({
+            ...rfid,
+            rfid_id: Number(rfid.rfid_id),
+            quantity: Number(rfid.quantity)
+          })) || []
+        }))
       }
       await updatePurchaseOrder(selectedPurchaseOrder.id, purchaseOrderData)
       toast({
