@@ -22,6 +22,18 @@ const createRfidTag = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// const createRfidTag = catchAsync(async (req: Request, res: Response) => {
+//   const data = req.body;
+//   console.log("Incoming RFID payload:", data);
+
+//   // Echo the JSON back to the RFID reader / client
+//   return res.status(200).json({
+//     success: true,
+//     message: "RFID data received",
+//     data,
+//   });
+// });
+
 // Get All RFID Tags
 const getAllRfidTags = catchAsync(async (req: Request, res: Response) => {
   const rawFilters = pick(req.query, ['searchTerm', 'tag_uid', 'status']);
