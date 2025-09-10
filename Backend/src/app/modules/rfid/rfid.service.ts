@@ -67,20 +67,24 @@ const getAllRfidTags = async (
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Add pagination parameters
+  const limitParam = paramIndex;
+  const offsetParam = paramIndex + 1;
+  values.push(limit, skip);
+
   const query = `
     SELECT rt.*
     FROM rfid_tags rt
     ${whereClause}
     ORDER BY rt.${sortBy} ${sortOrder}
-    LIMIT $${paramIndex++} OFFSET $${paramIndex};
+    LIMIT $${limitParam} OFFSET $${offsetParam};
   `;
-
-  values.push(limit, skip);
 
   const result = await pool.query(query, values);
 
   const countQuery = `SELECT COUNT(*) FROM rfid_tags rt ${whereClause};`;
-  const countResult = await pool.query(countQuery, values.slice(0, paramIndex - 2));
+  const countValues = conditions.length > 0 ? values.slice(0, paramIndex) : [];
+  const countResult = await pool.query(countQuery, countValues);
   const total = parseInt(countResult.rows[0].count, 10);
 
   return {
