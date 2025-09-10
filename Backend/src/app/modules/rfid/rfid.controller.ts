@@ -103,10 +103,56 @@ const deleteRfidTag = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// Check RFID Tags
+const checkRfidTags = catchAsync(async (req: Request, res: Response) => {
+  const data = req.body;
+  
+  const result = await RfidService.checkRfidTags(data);
+  if (Array.isArray(data)) {
+    res.status(200).json({
+      success: true,
+      message: `Checked ${data.length} RFID tags`,
+      data: {
+        found: result.found,
+        notFound: result.notFound,
+        summary: {
+          total: data.length,
+          found: result.found.length,
+          notFound: result.notFound.length,
+          errors: result.errors.length
+        }
+      },
+      errors: result.errors.length > 0 ? result.errors : undefined
+    });
+  } else {
+    if (result.found.length > 0) {
+      res.status(200).json({
+        success: true,
+        message: 'RFID tag found',
+        data: {
+          found: result.found[0],
+          exists: true
+        }
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        message: 'RFID tag not found',
+        data: {
+          exists: false,
+          notFound: result.notFound[0] || 'Unknown tag'
+        },
+        errors: result.errors.length > 0 ? result.errors : undefined
+      });
+    }
+  }
+});
+
 export const RfidController = {
   createRfidTag,
   getAllRfidTags,
   getSingleRfidTag,
   updateRfidTag,
   deleteRfidTag,
+  checkRfidTags,
 };

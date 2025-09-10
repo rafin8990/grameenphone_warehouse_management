@@ -194,10 +194,93 @@ const deleteRfidTag = async (id: number): Promise<void> => {
   }
 };
 
+const checkRfidTags = async (data: any): Promise<{
+  found: IRfidTag[];
+  notFound: string[];
+  errors: any[];
+}> => {
+  try {
+    let requestData = data;
+    
+    if (typeof data === 'string') {
+      try {
+        requestData = JSON.parse(data);
+      } catch (parseError) {
+        throw new ApiError(httpStatus.BAD_REQUEST, 'Invalid JSON format');
+      }
+    }
+
+    let tagsToCheck = Array.isArray(requestData) ? requestData : [requestData];
+    
+    console.log('Tags to check:', tagsToCheck);
+    
+    const found: IRfidTag[] = [];
+    const notFound: string[] = [];
+    const errors: any[] = [];
+
+    for (let i = 0; i < tagsToCheck.length; i++) {
+      const { form_data, tag_uid } = tagsToCheck[i];
+      let tagUidToCheck;
+      try {
+        if (typeof form_data === 'string') {
+          const parsedArray = JSON.parse(form_data);
+          if (Array.isArray(parsedArray) && parsedArray.length >= 2) {
+            tagUidToCheck = parsedArray[1];
+          } else {
+            tagUidToCheck = form_data;
+          }
+        } else if (tag_uid) {
+          tagUidToCheck = tag_uid;
+        } else {
+          tagUidToCheck = form_data;
+        }
+      } catch (parseError) {
+        tagUidToCheck = form_data || tag_uid; 
+      }
+
+      console.log(`Checking tag ${i}:`, { form_data, tag_uid, tagUidToCheck });
+
+      if (!tagUidToCheck) {
+        console.log(`Tag ${i}: Missing tag_uid`);
+        errors.push({ 
+          index: i, 
+          error: 'form_data or tag_uid is required and must contain valid tag_uid' 
+        });
+        continue;
+      }
+
+      try {
+        const existingTag = await pool.query(
+          'SELECT * FROM rfid_tags WHERE tag_uid = $1',
+          [tagUidToCheck]
+        );
+
+        if (existingTag.rows.length > 0) {
+          found.push(existingTag.rows[0]);
+        } else {
+          notFound.push(tagUidToCheck);
+        }
+      } catch (dbError) {
+        errors.push({ 
+          index: i, 
+          error: `Database error: ${dbError instanceof Error ? dbError.message : 'Unknown database error'}` 
+        });
+      }
+    }
+    
+    return { found, notFound, errors };
+  } catch (error) {
+    console.error('=== RFID CHECK Error ===');
+    console.error('Error details:', error);
+    throw error;
+  }
+};
+
 export const RfidService = {
   createRfidTag,
   getAllRfidTags,
   getSingleRfidTag,
   updateRfidTag,
   deleteRfidTag,
+  checkRfidTags,
 };

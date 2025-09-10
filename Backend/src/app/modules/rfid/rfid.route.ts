@@ -11,6 +11,11 @@ router.post(
   RfidController.createRfidTag
 );
 
+router.post(
+  '/check',
+  RfidController.checkRfidTags
+);
+
 router.get(
   '/',
   validateRequest(RfidValidation.getAllRfidTagsZodSchema),
