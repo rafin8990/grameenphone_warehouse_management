@@ -40,4 +40,14 @@ router.delete(
   RfidController.deleteRfidTag
 );
 
+router.post(
+  '/:id/assign',
+  RfidController.assignRfidTag
+);
+
+router.post(
+  '/:id/unassign',
+  RfidController.unassignRfidTag
+);
+
 export const RfidRoutes = router;

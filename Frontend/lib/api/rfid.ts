@@ -143,11 +143,10 @@ export const rfidApi = {
   },
 
   // Assign RFID tag to item
-  assignToItem: async (id: number, itemId: number): Promise<IRfidTag> => {
+  assignToItem: async (id: number): Promise<IRfidTag> => {
     try {
       const response = await apiRequest(`/api/v1/rfid/${id}/assign`, {
         method: 'POST',
-        body: JSON.stringify({ item_id: itemId }),
       });
       return response.data;
     } catch (error) {

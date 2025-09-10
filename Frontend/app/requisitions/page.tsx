@@ -863,7 +863,7 @@ export default function RequisitionsPage() {
                    {requisitionItems.length > 0 && (
                      <p className="text-sm text-gray-600 mt-1">
                        Total: {requisitionItems.length} item(s) | 
-                       Quantity: {requisitionItems.reduce((sum, item) => sum + (item.quantity || 0), 0).toFixed(2)}
+                       Quantity: {requisitionItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0).toFixed(2)}
                      </p>
                    )}
                  </div>
@@ -1042,7 +1042,7 @@ export default function RequisitionsPage() {
                    {requisitionItems.length > 0 && (
                      <p className="text-sm text-gray-600 mt-1">
                        Total: {requisitionItems.length} item(s) | 
-                       Quantity: {requisitionItems.reduce((sum, item) => sum + (item.quantity || 0), 0).toFixed(2)}
+                       Quantity: {requisitionItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0).toFixed(2)}
                      </p>
                    )}
                  </div>

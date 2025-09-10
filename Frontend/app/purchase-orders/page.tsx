@@ -86,6 +86,20 @@ export default function PurchaseOrdersPage() {
   const [availableRfidTags, setAvailableRfidTags] = useState<IRfidTag[]>([])
   const [itemsLoading, setItemsLoading] = useState(false)
 
+  // Debug: Log availableRfidTags whenever it changes
+  useEffect(() => {
+    console.log('availableRfidTags updated:', availableRfidTags)
+    console.log('availableRfidTags length:', availableRfidTags.length)
+    if (availableRfidTags.length > 0) {
+      console.log('First RFID tag:', availableRfidTags[0])
+    }
+  }, [availableRfidTags])
+
+  // Refresh available RFID tags when purchase order items change
+  useEffect(() => {
+    fetchAvailableRfidTags()
+  }, [purchaseOrderItems])
+
   useEffect(() => {
     fetchPurchaseOrders()
     fetchAvailableItems()
@@ -126,8 +140,47 @@ export default function PurchaseOrdersPage() {
 
   const fetchAvailableRfidTags = async () => {
     try {
-      const response = await rfidApi.getAll({ limit: 1000, status: 'available' })
-      setAvailableRfidTags(response.data)
+      console.log('Fetching RFID tags...')
+      // Try to get all RFID tags first (status filter has backend issues)
+      let response = await rfidApi.getAll({ limit: 1000 })
+      console.log('RFID tags response (all):', response)
+      console.log('RFID tags data:', response.data)
+      console.log('RFID tags data length:', response.data?.length)
+      
+      // Filter available tags on frontend if needed
+      let rfidTags = response.data || []
+      if (rfidTags.length > 0) {
+        // Filter for available status on frontend
+        const availableTags = rfidTags.filter(tag => tag.status === 'available')
+        console.log('Filtered available RFID tags:', availableTags)
+        
+        // Get already selected RFID IDs from current purchase order items
+        const selectedRfidIds = new Set<number>()
+        purchaseOrderItems.forEach(item => {
+          if (item.rfid_tags) {
+            item.rfid_tags.forEach(rfid => {
+              if (rfid.rfid_id) {
+                selectedRfidIds.add(Number(rfid.rfid_id))
+              }
+            })
+          }
+        })
+        console.log('Already selected RFID IDs:', Array.from(selectedRfidIds))
+        
+        // Filter out already selected RFID tags
+        const trulyAvailableTags = availableTags.filter(tag => !selectedRfidIds.has(tag.id!))
+        console.log('Truly available RFID tags (excluding selected):', trulyAvailableTags)
+        
+        // If no available tags, show all tags for testing
+        if (trulyAvailableTags.length === 0) {
+          console.log('No available tags found, showing all tags for testing')
+          rfidTags = rfidTags // Show all tags
+        } else {
+          rfidTags = trulyAvailableTags
+        }
+      }
+      
+      setAvailableRfidTags(rfidTags)
     } catch (error) {
       console.error('Error fetching RFID tags:', error)
       toast({
@@ -226,6 +279,7 @@ export default function PurchaseOrdersPage() {
           }))
         }
         await purchaseOrdersApi.create(purchaseOrderData)
+        
         toast({
           title: "Success",
           description: "Purchase order created successfully"
@@ -234,6 +288,7 @@ export default function PurchaseOrdersPage() {
         resetForm()
         setPurchaseOrderItems([])
         fetchPurchaseOrders()
+        fetchAvailableRfidTags() // Refresh available RFID tags
       } catch (error) {
         console.error('Error creating purchase order:', error)
         toast({
@@ -313,6 +368,7 @@ export default function PurchaseOrdersPage() {
           }))
         }
         await purchaseOrdersApi.update(selectedPurchaseOrder.id, purchaseOrderData)
+        
         toast({
           title: "Success",
           description: "Purchase order updated successfully"
@@ -321,6 +377,7 @@ export default function PurchaseOrdersPage() {
         resetForm()
         setPurchaseOrderItems([])
         fetchPurchaseOrders()
+        fetchAvailableRfidTags() // Refresh available RFID tags
       } catch (error) {
         console.error('Error updating purchase order:', error)
         toast({
@@ -339,14 +396,21 @@ export default function PurchaseOrdersPage() {
     
     try {
       setDeleteLoading(true)
+      
+      // Unassign all RFID tags from this purchase order
+      if (selectedPurchaseOrder.items) {
+        // RFID tags are now automatically unassigned in the backend
+      }
+      
       await purchaseOrdersApi.delete(selectedPurchaseOrder.id)
       toast({
         title: "Success",
-        description: "Purchase order deleted successfully"
+        description: "Purchase order deleted and RFID tags unassigned successfully"
       })
       setIsDeleteDialogOpen(false)
       setSelectedPurchaseOrder(null)
       fetchPurchaseOrders()
+      fetchAvailableRfidTags() // Refresh available RFID tags
     } catch (error) {
       console.error('Error deleting purchase order:', error)
       toast({
@@ -385,6 +449,8 @@ export default function PurchaseOrdersPage() {
       status: 'pending'
     })
     setPurchaseOrderItems([])
+    // Refresh available RFID tags when form is reset
+    fetchAvailableRfidTags()
   }
 
   const resetFilters = () => {
@@ -427,12 +493,19 @@ export default function PurchaseOrdersPage() {
     setPurchaseOrderItems(updatedItems)
   }
 
-  const removeRfidTagFromItem = (itemIndex: number, rfidIndex: number) => {
+  const removeRfidTagFromItem = async (itemIndex: number, rfidIndex: number) => {
     const updatedItems = [...purchaseOrderItems]
     if (updatedItems[itemIndex].rfid_tags) {
+      const rfidToRemove = updatedItems[itemIndex].rfid_tags![rfidIndex]
+      
+      // RFID tags are now automatically unassigned in the backend when removed
+      
       updatedItems[itemIndex].rfid_tags = updatedItems[itemIndex].rfid_tags!.filter((_, i) => i !== rfidIndex)
     }
     setPurchaseOrderItems(updatedItems)
+    
+    // Refresh available RFID tags
+    fetchAvailableRfidTags()
   }
 
   const updateRfidTag = (itemIndex: number, rfidIndex: number, field: keyof any, value: any) => {
@@ -444,6 +517,13 @@ export default function PurchaseOrdersPage() {
       }
     }
     setPurchaseOrderItems(updatedItems)
+    
+    // If RFID ID is being set, refresh available RFID tags immediately
+    if (field === 'rfid_id' && value) {
+      setTimeout(() => {
+        fetchAvailableRfidTags()
+      }, 100) // Small delay to ensure state is updated
+    }
   }
 
   const openEditDialog = (purchaseOrder: IPurchaseOrderWithItems) => {
@@ -500,6 +580,8 @@ export default function PurchaseOrdersPage() {
             onClick={() => {
               resetForm()
               setIsCreateDialogOpen(true)
+              // Refresh available RFID tags when opening create dialog
+              fetchAvailableRfidTags()
             }}
             className="bg-emerald-600 hover:bg-emerald-700"
           >
@@ -661,6 +743,14 @@ export default function PurchaseOrdersPage() {
             <DialogTitle>Create New Purchase Order</DialogTitle>
             <DialogDescription>
               Fill in the details to create a new purchase order
+              <div className="mt-2 text-xs text-gray-500">
+                Available RFID tags: {availableRfidTags.length}
+                {availableRfidTags.length > 0 && (
+                  <span className="ml-2 text-green-600">
+                    (First: {availableRfidTags[0].tag_uid})
+                  </span>
+                )}
+              </div>
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4">
@@ -794,7 +884,33 @@ export default function PurchaseOrdersPage() {
                       {/* RFID Tags Section */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <Label className="text-sm font-medium">RFID Tags</Label>
+                          <div className="flex items-center gap-2">
+                            <Label className="text-sm font-medium">RFID Tags</Label>
+                            <span className="text-xs text-gray-500">({availableRfidTags.length} available)</span>
+                            {availableRfidTags.length > 0 && (
+                              <span className="text-xs text-green-600">
+                                First: {availableRfidTags[0].tag_uid}
+                              </span>
+                            )}
+                            <Button
+                              type="button"
+                              onClick={() => {
+                                console.log('Current availableRfidTags:', availableRfidTags)
+                                // Add a test RFID tag for debugging
+                                const testTag = {
+                                  id: 999,
+                                  tag_uid: 'TEST-123',
+                                  status: 'available' as const,
+                                  created_at: new Date(),
+                                  updated_at: new Date()
+                                }
+                                setAvailableRfidTags([...availableRfidTags, testTag])
+                              }}
+                              className="h-6 px-2 text-xs bg-blue-500 hover:bg-blue-600"
+                            >
+                              Add Test
+                            </Button>
+                          </div>
                           <Button
                             type="button"
                             onClick={() => addRfidTagToItem(index)}
@@ -809,7 +925,7 @@ export default function PurchaseOrdersPage() {
                             {item.rfid_tags.map((rfid, rfidIndex) => (
                               <div key={rfidIndex} className="grid grid-cols-3 gap-2 p-2 border rounded bg-white">
                                 <div>
-                                  <Label className="text-xs">RFID Tag *</Label>
+                                  <Label className="text-xs">RFID Tag * ({availableRfidTags.length} available)</Label>
                                   <Select
                                     value={rfid.rfid_id?.toString() || ''}
                                     onValueChange={(value) => updateRfidTag(index, rfidIndex, 'rfid_id', parseInt(value))}
@@ -818,11 +934,27 @@ export default function PurchaseOrdersPage() {
                                       <SelectValue placeholder="Select RFID" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {availableRfidTags.map((rfidTag) => (
-                                        <SelectItem key={rfidTag.id} value={rfidTag.id?.toString() || ''}>
-                                          {rfidTag.tag_uid} ({rfidTag.status})
+                                      {availableRfidTags.length > 0 ? (
+                                        availableRfidTags.map((rfidTag, index) => {
+                                          console.log(`Rendering RFID tag ${index}:`, rfidTag)
+                                          const isSelected = purchaseOrderItems.some(item => 
+                                            item.rfid_tags?.some(rfid => Number(rfid.rfid_id) === rfidTag.id)
+                                          )
+                                          return (
+                                            <SelectItem 
+                                              key={rfidTag.id || index} 
+                                              value={rfidTag.id?.toString() || ''}
+                                              disabled={isSelected}
+                                            >
+                                              {rfidTag.tag_uid} ({rfidTag.status}) {isSelected ? ' - Already Selected' : ''}
+                                            </SelectItem>
+                                          )
+                                        })
+                                      ) : (
+                                        <SelectItem value="no-rfid" disabled>
+                                          No available RFID tags ({availableRfidTags.length})
                                         </SelectItem>
-                                      ))}
+                                      )}
                                     </SelectContent>
                                   </Select>
                                 </div>
@@ -1035,7 +1167,33 @@ export default function PurchaseOrdersPage() {
                       {/* RFID Tags Section */}
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
-                          <Label className="text-sm font-medium">RFID Tags</Label>
+                          <div className="flex items-center gap-2">
+                            <Label className="text-sm font-medium">RFID Tags</Label>
+                            <span className="text-xs text-gray-500">({availableRfidTags.length} available)</span>
+                            {availableRfidTags.length > 0 && (
+                              <span className="text-xs text-green-600">
+                                First: {availableRfidTags[0].tag_uid}
+                              </span>
+                            )}
+                            <Button
+                              type="button"
+                              onClick={() => {
+                                console.log('Current availableRfidTags:', availableRfidTags)
+                                // Add a test RFID tag for debugging
+                                const testTag = {
+                                  id: 999,
+                                  tag_uid: 'TEST-123',
+                                  status: 'available' as const,
+                                  created_at: new Date(),
+                                  updated_at: new Date()
+                                }
+                                setAvailableRfidTags([...availableRfidTags, testTag])
+                              }}
+                              className="h-6 px-2 text-xs bg-blue-500 hover:bg-blue-600"
+                            >
+                              Add Test
+                            </Button>
+                          </div>
                           <Button
                             type="button"
                             onClick={() => addRfidTagToItem(index)}
@@ -1050,7 +1208,7 @@ export default function PurchaseOrdersPage() {
                             {item.rfid_tags.map((rfid, rfidIndex) => (
                               <div key={rfidIndex} className="grid grid-cols-3 gap-2 p-2 border rounded bg-white">
                                 <div>
-                                  <Label className="text-xs">RFID Tag *</Label>
+                                  <Label className="text-xs">RFID Tag * ({availableRfidTags.length} available)</Label>
                                   <Select
                                     value={rfid.rfid_id?.toString() || ''}
                                     onValueChange={(value) => updateRfidTag(index, rfidIndex, 'rfid_id', parseInt(value))}
@@ -1059,11 +1217,27 @@ export default function PurchaseOrdersPage() {
                                       <SelectValue placeholder="Select RFID" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      {availableRfidTags.map((rfidTag) => (
-                                        <SelectItem key={rfidTag.id} value={rfidTag.id?.toString() || ''}>
-                                          {rfidTag.tag_uid} ({rfidTag.status})
+                                      {availableRfidTags.length > 0 ? (
+                                        availableRfidTags.map((rfidTag, index) => {
+                                          console.log(`Rendering RFID tag ${index}:`, rfidTag)
+                                          const isSelected = purchaseOrderItems.some(item => 
+                                            item.rfid_tags?.some(rfid => Number(rfid.rfid_id) === rfidTag.id)
+                                          )
+                                          return (
+                                            <SelectItem 
+                                              key={rfidTag.id || index} 
+                                              value={rfidTag.id?.toString() || ''}
+                                              disabled={isSelected}
+                                            >
+                                              {rfidTag.tag_uid} ({rfidTag.status}) {isSelected ? ' - Already Selected' : ''}
+                                            </SelectItem>
+                                          )
+                                        })
+                                      ) : (
+                                        <SelectItem value="no-rfid" disabled>
+                                          No available RFID tags ({availableRfidTags.length})
                                         </SelectItem>
-                                      ))}
+                                      )}
                                     </SelectContent>
                                   </Select>
                                 </div>

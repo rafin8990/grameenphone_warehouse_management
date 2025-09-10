@@ -148,6 +148,32 @@ const checkRfidTags = catchAsync(async (req: Request, res: Response) => {
   }
 });
 
+// Assign RFID Tag to Item
+const assignRfidTag = catchAsync(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  
+  const result = await RfidService.assignRfidTag(Number(id));
+  sendResponse<IRfidTag>(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'RFID tag assigned successfully',
+    data: result,
+  });
+});
+
+// Unassign RFID Tag
+const unassignRfidTag = catchAsync(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  
+  const result = await RfidService.unassignRfidTag(Number(id));
+  sendResponse<IRfidTag>(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'RFID tag unassigned successfully',
+    data: result,
+  });
+});
+
 export const RfidController = {
   createRfidTag,
   getAllRfidTags,
@@ -155,4 +181,6 @@ export const RfidController = {
   updateRfidTag,
   deleteRfidTag,
   checkRfidTags,
+  assignRfidTag,
+  unassignRfidTag,
 };

@@ -276,6 +276,74 @@ const checkRfidTags = async (data: any): Promise<{
   }
 };
 
+// Assign RFID Tag to Item
+const assignRfidTag = async (id: number): Promise<IRfidTag | null> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Check if RFID tag exists and is available
+    const checkQuery = `SELECT * FROM rfid_tags WHERE id = $1 AND status = 'available';`;
+    const checkResult = await client.query(checkQuery, [id]);
+
+    if (checkResult.rows.length === 0) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'RFID tag not found or not available for assignment');
+    }
+
+    // Update RFID tag status to assigned
+    const updateQuery = `
+      UPDATE rfid_tags 
+      SET status = 'assigned', updated_at = NOW()
+      WHERE id = $1
+      RETURNING *;
+    `;
+
+    const result = await client.query(updateQuery, [id]);
+    await client.query('COMMIT');
+    
+    return result.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Unassign RFID Tag
+const unassignRfidTag = async (id: number): Promise<IRfidTag | null> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Check if RFID tag exists and is assigned
+    const checkQuery = `SELECT * FROM rfid_tags WHERE id = $1 AND status = 'assigned';`;
+    const checkResult = await client.query(checkQuery, [id]);
+
+    if (checkResult.rows.length === 0) {
+      throw new ApiError(httpStatus.BAD_REQUEST, 'RFID tag not found or not assigned');
+    }
+
+    // Update RFID tag status to available
+    const updateQuery = `
+      UPDATE rfid_tags 
+      SET status = 'available', updated_at = NOW()
+      WHERE id = $1
+      RETURNING *;
+    `;
+
+    const result = await client.query(updateQuery, [id]);
+    await client.query('COMMIT');
+    
+    return result.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 export const RfidService = {
   createRfidTag,
   getAllRfidTags,
@@ -283,4 +351,6 @@ export const RfidService = {
   updateRfidTag,
   deleteRfidTag,
   checkRfidTags,
+  assignRfidTag,
+  unassignRfidTag,
 };

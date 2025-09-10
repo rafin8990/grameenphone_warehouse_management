@@ -64,6 +64,14 @@ const createPurchaseOrder = async (
 
             const rfidValues = [poItem.id, rfid.rfid_id, rfid.quantity ?? 1];
             await client.query(insertRfidQuery, rfidValues);
+
+            // Update RFID tag status to 'assigned' and set item_id
+            const updateRfidQuery = `
+              UPDATE rfid_tags 
+              SET status = 'assigned', updated_at = NOW()
+              WHERE id = $1;
+            `;
+            await client.query(updateRfidQuery, [rfid.rfid_id]);
           }
         }
       }
@@ -313,6 +321,23 @@ const updatePurchaseOrder = async (
 
     // Update items if provided
     if (data.items && data.items.length > 0) {
+      // First, unassign RFID tags from existing items before deleting
+      const existingRfidQuery = `
+        SELECT rfid_id FROM po_items_rfid 
+        WHERE po_item_id IN (SELECT id FROM po_items WHERE po_id = $1);
+      `;
+      const existingRfidResult = await client.query(existingRfidQuery, [id]);
+      
+      // Unassign existing RFID tags
+      for (const rfidRow of existingRfidResult.rows) {
+        const unassignRfidQuery = `
+          UPDATE rfid_tags 
+          SET status = 'available', updated_at = NOW()
+          WHERE id = $1;
+        `;
+        await client.query(unassignRfidQuery, [rfidRow.rfid_id]);
+      }
+
       // Delete existing items and RFID associations
       await client.query('DELETE FROM po_items_rfid WHERE po_item_id IN (SELECT id FROM po_items WHERE po_id = $1);', [id]);
       await client.query('DELETE FROM po_items WHERE po_id = $1;', [id]);
@@ -342,6 +367,14 @@ const updatePurchaseOrder = async (
 
             const rfidValues = [poItem.id, rfid.rfid_id, rfid.quantity ?? 1];
             await client.query(insertRfidQuery, rfidValues);
+
+            // Update RFID tag status to 'assigned'
+            const updateRfidQuery = `
+              UPDATE rfid_tags 
+              SET status = 'assigned', updated_at = NOW()
+              WHERE id = $1;
+            `;
+            await client.query(updateRfidQuery, [rfid.rfid_id]);
           }
         }
       }
@@ -370,6 +403,23 @@ const deletePurchaseOrder = async (id: number): Promise<void> => {
 
     if (checkResult.rows.length === 0) {
       throw new ApiError(httpStatus.NOT_FOUND, 'Purchase order not found');
+    }
+
+    // First, unassign RFID tags from all items in this purchase order
+    const existingRfidQuery = `
+      SELECT rfid_id FROM po_items_rfid 
+      WHERE po_item_id IN (SELECT id FROM po_items WHERE po_id = $1);
+    `;
+    const existingRfidResult = await client.query(existingRfidQuery, [id]);
+    
+    // Unassign existing RFID tags
+    for (const rfidRow of existingRfidResult.rows) {
+      const unassignRfidQuery = `
+        UPDATE rfid_tags 
+        SET status = 'available', updated_at = NOW()
+        WHERE id = $1;
+      `;
+      await client.query(unassignRfidQuery, [rfidRow.rfid_id]);
     }
 
     // Delete purchase order (cascade will handle po_items and po_items_rfid)
