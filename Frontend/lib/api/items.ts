@@ -204,7 +204,7 @@ export const itemsApi = {
   update: async (id: number, data: UpdateItemData): Promise<IItem> => {
     try {
       const response = await apiRequest(`/api/v1/items/${id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify(data),
       });
       return response.data;

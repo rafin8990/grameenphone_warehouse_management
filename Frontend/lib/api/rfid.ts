@@ -109,7 +109,7 @@ export const rfidApi = {
   update: async (id: number, data: UpdateRfidData): Promise<IRfidTag> => {
     try {
       const response = await apiRequest(`/api/v1/rfid/${id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify(data),
       });
       return response.data;

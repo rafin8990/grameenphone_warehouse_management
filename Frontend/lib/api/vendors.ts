@@ -150,7 +150,7 @@ export const vendorsApi = {
   update: async (id: number, data: UpdateVendorData): Promise<IVendor> => {
     try {
       const response = await apiRequest(`/api/v1/vendors/${id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify(data),
       });
       return response.data;

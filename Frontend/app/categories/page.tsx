@@ -50,10 +50,21 @@ export default function CategoriesPage() {
   const fetchCategories = async () => {
     try {
       setLoading(true);
-      // API functionality removed - using mock data
-      setCategories([]);
-      setTotalPages(1);
-      setTotalItems(0);
+      const params: CategoryQueryParams = {
+        page: currentPage,
+        limit: itemsPerPage,
+        searchTerm: searchTerm || undefined,
+        status: statusFilter === 'all' ? undefined : (statusFilter as 'active' | 'inactive'),
+        sortBy: 'created_at',
+        sortOrder: 'desc'
+      };
+
+      const response = await categoriesApi.getAll(params);
+      setCategories(response.data);
+      if (response.meta) {
+        setTotalPages(response.meta.totalPages);
+        setTotalItems(response.meta.total);
+      }
     } catch (error) {
       console.error('Error fetching categories:', error);
       toast({
@@ -80,7 +91,12 @@ export default function CategoriesPage() {
         return;
       }
 
-      // API functionality removed - mock success
+      // Convert null values to undefined for API compatibility
+      const apiData = {
+        ...formData,
+        parent_id: formData.parent_id || undefined
+      };
+      await categoriesApi.create(apiData);
       toast({
         title: "Success",
         description: "Category created successfully"
@@ -114,7 +130,12 @@ export default function CategoriesPage() {
         return;
       }
 
-      // API functionality removed - mock success
+      // Convert null values to undefined for API compatibility
+      const apiData = {
+        ...formData,
+        parent_id: formData.parent_id || undefined
+      };
+      await categoriesApi.update(editingCategory.id, apiData);
       toast({
         title: "Success",
         description: "Category updated successfully"
@@ -134,7 +155,7 @@ export default function CategoriesPage() {
 
   const handleDelete = async (id: number) => {
     try {
-      // API functionality removed - mock success
+      await categoriesApi.delete(id);
       toast({
         title: "Success",
         description: "Category deleted successfully"

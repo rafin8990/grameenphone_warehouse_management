@@ -148,7 +148,7 @@ export const purchaseOrdersApi = {
   update: async (id: number, data: UpdatePurchaseOrderData): Promise<IPurchaseOrderWithItems> => {
     try {
       const response = await apiRequest(`/api/v1/purchase-orders/${id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify(data),
       });
       return response.data;

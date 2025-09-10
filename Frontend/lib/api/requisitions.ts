@@ -138,7 +138,7 @@ export const requisitionsApi = {
   update: async (id: number, data: UpdateRequisitionData): Promise<IRequisitionWithItems> => {
     try {
       const response = await apiRequest(`/api/v1/requisitions/${id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify(data),
       });
       return response.data;

@@ -20,41 +20,27 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
 
 export interface ILocation {
   id?: number;
-  location_code: string;
-  name: string;
+  sub_inventory_code: string;
+  locator_code: string;
+  name?: string | null;
   description?: string | null;
-  location_type: 'warehouse' | 'room' | 'shelf' | 'bin' | string;
-  parent_id?: number | null;
-  status: 'active' | 'inactive' | string;
-  address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  country?: string | null;
-  postal_code?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
+  org_code?: string | null;
+  status: 'active' | 'inactive' | 'obsolete' | string;
   capacity?: number | null;
-  current_occupancy?: number | null;
+  attributes?: Record<string, any> | null;
   created_at?: Date;
   updated_at?: Date;
 }
 
 export interface LocationQueryParams {
   searchTerm?: string;
-  location_code?: string;
+  sub_inventory_code?: string;
+  locator_code?: string;
   name?: string;
-  location_type?: 'warehouse' | 'room' | 'shelf' | 'bin';
-  parent_id?: number;
-  status?: 'active' | 'inactive';
-  address?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  postal_code?: string;
+  org_code?: string;
+  status?: 'active' | 'inactive' | 'obsolete';
   capacity_min?: number;
   capacity_max?: number;
-  current_occupancy_min?: number;
-  current_occupancy_max?: number;
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -62,39 +48,25 @@ export interface LocationQueryParams {
 }
 
 export interface CreateLocationData {
-  location_code: string;
-  name: string;
+  sub_inventory_code: string;
+  locator_code: string;
+  name?: string;
   description?: string;
-  location_type: 'warehouse' | 'room' | 'shelf' | 'bin';
-  parent_id?: number;
-  status?: 'active' | 'inactive';
-  address?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  postal_code?: string;
-  latitude?: number;
-  longitude?: number;
+  org_code?: string;
+  status?: 'active' | 'inactive' | 'obsolete';
   capacity?: number;
-  current_occupancy?: number;
+  attributes?: Record<string, any>;
 }
 
 export interface UpdateLocationData {
-  location_code?: string;
+  sub_inventory_code?: string;
+  locator_code?: string;
   name?: string;
   description?: string;
-  location_type?: 'warehouse' | 'room' | 'shelf' | 'bin';
-  parent_id?: number;
-  status?: 'active' | 'inactive';
-  address?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  postal_code?: string;
-  latitude?: number;
-  longitude?: number;
+  org_code?: string;
+  status?: 'active' | 'inactive' | 'obsolete';
   capacity?: number;
-  current_occupancy?: number;
+  attributes?: Record<string, any>;
 }
 
 export interface LocationResponse {

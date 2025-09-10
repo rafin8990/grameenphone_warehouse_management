@@ -31,21 +31,14 @@ export default function LocationsPage() {
   const [editingLocation, setEditingLocation] = useState<ILocation | null>(null);
   const [viewingLocation, setViewingLocation] = useState<ILocation | null>(null);
   const [formData, setFormData] = useState({
-    location_code: '',
+    sub_inventory_code: '',
+    locator_code: '',
     name: '',
     description: '',
-    location_type: 'warehouse' as 'warehouse' | 'room' | 'shelf' | 'bin',
-    parent_id: null as number | null,
-    status: 'active' as 'active' | 'inactive',
-    address: '',
-    city: '',
-    state: '',
-    country: '',
-    postal_code: '',
-    latitude: null as number | null,
-    longitude: null as number | null,
+    org_code: '',
+    status: 'active' as 'active' | 'inactive' | 'obsolete',
     capacity: null as number | null,
-    current_occupancy: null as number | null
+    attributes: {} as Record<string, any>
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const { toast } = useToast();
@@ -91,23 +84,19 @@ export default function LocationsPage() {
       setFormErrors({});
       
       // Validation
-      if (!formData.location_code.trim()) {
-        setFormErrors(prev => ({ ...prev, location_code: 'Location code is required' }));
+      if (!formData.sub_inventory_code.trim()) {
+        setFormErrors(prev => ({ ...prev, sub_inventory_code: 'Sub inventory code is required' }));
         return;
       }
-      if (!formData.name.trim()) {
-        setFormErrors(prev => ({ ...prev, name: 'Location name is required' }));
+      if (!formData.locator_code.trim()) {
+        setFormErrors(prev => ({ ...prev, locator_code: 'Locator code is required' }));
         return;
       }
 
       // Convert null values to undefined for API compatibility
       const apiData = {
         ...formData,
-        parent_id: formData.parent_id || undefined,
-        latitude: formData.latitude || undefined,
-        longitude: formData.longitude || undefined,
-        capacity: formData.capacity || undefined,
-        current_occupancy: formData.current_occupancy || undefined
+        capacity: formData.capacity || undefined
       };
       await locationsApi.create(apiData);
       toast({
@@ -134,23 +123,19 @@ export default function LocationsPage() {
       setFormErrors({});
       
       // Validation
-      if (!formData.location_code.trim()) {
-        setFormErrors(prev => ({ ...prev, location_code: 'Location code is required' }));
+      if (!formData.sub_inventory_code.trim()) {
+        setFormErrors(prev => ({ ...prev, sub_inventory_code: 'Sub inventory code is required' }));
         return;
       }
-      if (!formData.name.trim()) {
-        setFormErrors(prev => ({ ...prev, name: 'Location name is required' }));
+      if (!formData.locator_code.trim()) {
+        setFormErrors(prev => ({ ...prev, locator_code: 'Locator code is required' }));
         return;
       }
 
       // Convert null values to undefined for API compatibility
       const apiData = {
         ...formData,
-        parent_id: formData.parent_id || undefined,
-        latitude: formData.latitude || undefined,
-        longitude: formData.longitude || undefined,
-        capacity: formData.capacity || undefined,
-        current_occupancy: formData.current_occupancy || undefined
+        capacity: formData.capacity || undefined
       };
       await locationsApi.update(editingLocation.id, apiData);
       toast({
@@ -196,42 +181,28 @@ export default function LocationsPage() {
   const handleEdit = (location: ILocation) => {
     setEditingLocation(location);
     setFormData({
-      location_code: location.location_code,
-      name: location.name,
+      sub_inventory_code: location.sub_inventory_code,
+      locator_code: location.locator_code,
+      name: location.name || '',
       description: location.description || '',
-      location_type: location.location_type as 'warehouse' | 'room' | 'shelf' | 'bin',
-      parent_id: location.parent_id || null,
-      status: location.status as 'active' | 'inactive',
-      address: location.address || '',
-      city: location.city || '',
-      state: location.state || '',
-      country: location.country || '',
-      postal_code: location.postal_code || '',
-      latitude: location.latitude || null,
-      longitude: location.longitude || null,
+      org_code: location.org_code || '',
+      status: location.status as 'active' | 'inactive' | 'obsolete',
       capacity: location.capacity || null,
-      current_occupancy: location.current_occupancy || null
+      attributes: location.attributes || {}
     });
     setIsEditDialogOpen(true);
   };
 
   const resetForm = () => {
     setFormData({
-      location_code: '',
+      sub_inventory_code: '',
+      locator_code: '',
       name: '',
       description: '',
-      location_type: 'warehouse',
-      parent_id: null,
+      org_code: '',
       status: 'active',
-      address: '',
-      city: '',
-      state: '',
-      country: '',
-      postal_code: '',
-      latitude: null,
-      longitude: null,
       capacity: null,
-      current_occupancy: null
+      attributes: {}
     });
     setFormErrors({});
     setEditingLocation(null);
@@ -308,6 +279,7 @@ export default function LocationsPage() {
                       <SelectItem value="all">All Status</SelectItem>
                       <SelectItem value="active">Active</SelectItem>
                       <SelectItem value="inactive">Inactive</SelectItem>
+                      <SelectItem value="obsolete">Obsolete</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -333,15 +305,26 @@ export default function LocationsPage() {
                     </DialogHeader>
                     <div className="space-y-4">
                       <div>
-                        <Label htmlFor="location_code">Location Code *</Label>
+                        <Label htmlFor="sub_inventory_code">Sub Inventory Code *</Label>
                         <Input
-                          id="location_code"
-                          value={formData.location_code}
-                          onChange={(e) => setFormData(prev => ({ ...prev, location_code: e.target.value }))}
-                          placeholder="Enter location code"
-                          className={formErrors.location_code ? "border-red-500" : ""}
+                          id="sub_inventory_code"
+                          value={formData.sub_inventory_code}
+                          onChange={(e) => setFormData(prev => ({ ...prev, sub_inventory_code: e.target.value }))}
+                          placeholder="Enter sub inventory code"
+                          className={formErrors.sub_inventory_code ? "border-red-500" : ""}
                         />
-                        {formErrors.location_code && <p className="text-sm text-red-500 mt-1">{formErrors.location_code}</p>}
+                        {formErrors.sub_inventory_code && <p className="text-sm text-red-500 mt-1">{formErrors.sub_inventory_code}</p>}
+                      </div>
+                      <div>
+                        <Label htmlFor="locator_code">Locator Code *</Label>
+                        <Input
+                          id="locator_code"
+                          value={formData.locator_code}
+                          onChange={(e) => setFormData(prev => ({ ...prev, locator_code: e.target.value }))}
+                          placeholder="Enter locator code"
+                          className={formErrors.locator_code ? "border-red-500" : ""}
+                        />
+                        {formErrors.locator_code && <p className="text-sm text-red-500 mt-1">{formErrors.locator_code}</p>}
                       </div>
                       <div>
                         <Label htmlFor="name">Name</Label>
@@ -363,23 +346,24 @@ export default function LocationsPage() {
                         />
                       </div>
                       <div>
-                        <Label htmlFor="address">Address</Label>
+                        <Label htmlFor="org_code">Organization Code</Label>
                         <Input
-                          id="address"
-                          value={formData.address}
-                          onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
-                          placeholder="Enter address"
+                          id="org_code"
+                          value={formData.org_code}
+                          onChange={(e) => setFormData(prev => ({ ...prev, org_code: e.target.value }))}
+                          placeholder="Enter organization code"
                         />
                       </div>
                       <div>
                         <Label htmlFor="status">Status</Label>
-                        <Select value={formData.status} onValueChange={(value: 'active' | 'inactive') => setFormData(prev => ({ ...prev, status: value }))}>
+                        <Select value={formData.status} onValueChange={(value: 'active' | 'inactive' | 'obsolete') => setFormData(prev => ({ ...prev, status: value }))}>
                           <SelectTrigger>
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="active">Active</SelectItem>
                             <SelectItem value="inactive">Inactive</SelectItem>
+                            <SelectItem value="obsolete">Obsolete</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -432,11 +416,11 @@ export default function LocationsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Location Code</TableHead>
+                      <TableHead>Sub Inventory Code</TableHead>
+                      <TableHead>Locator Code</TableHead>
                       <TableHead>Name</TableHead>
                       <TableHead>Description</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Address</TableHead>
+                      <TableHead>Organization</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Capacity</TableHead>
                       <TableHead>Created</TableHead>
@@ -446,14 +430,14 @@ export default function LocationsPage() {
                   <TableBody>
                     {locations.map((location) => (
                       <TableRow key={location.id}>
-                        <TableCell className="font-mono text-sm">{location.location_code}</TableCell>
+                        <TableCell className="font-mono text-sm">{location.sub_inventory_code}</TableCell>
+                        <TableCell className="font-mono text-sm">{location.locator_code}</TableCell>
                         <TableCell className="font-medium">{location.name || '-'}</TableCell>
                         <TableCell className="max-w-xs truncate">
                           {location.description || '-'}
                         </TableCell>
-                        <TableCell className="capitalize">{location.location_type}</TableCell>
-                        <TableCell className="max-w-xs truncate">
-                          {location.address || '-'}
+                        <TableCell className="font-mono text-sm">
+                          {location.org_code || '-'}
                         </TableCell>
                         <TableCell>
                           <Badge variant={getStatusBadgeVariant(location.status)}>
@@ -490,7 +474,7 @@ export default function LocationsPage() {
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Delete Location</AlertDialogTitle>
                                   <AlertDialogDescription>
-                                    Are you sure you want to delete "{location.name || location.location_code}"? This action cannot be undone.
+                                    Are you sure you want to delete "{location.name || location.locator_code}"? This action cannot be undone.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
@@ -553,15 +537,26 @@ export default function LocationsPage() {
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <Label htmlFor="edit-location-code">Location Code *</Label>
+                <Label htmlFor="edit-sub-inventory-code">Sub Inventory Code *</Label>
                 <Input
-                  id="edit-location-code"
-                  value={formData.location_code}
-                  onChange={(e) => setFormData(prev => ({ ...prev, location_code: e.target.value }))}
-                  placeholder="Enter location code"
-                  className={formErrors.location_code ? "border-red-500" : ""}
+                  id="edit-sub-inventory-code"
+                  value={formData.sub_inventory_code}
+                  onChange={(e) => setFormData(prev => ({ ...prev, sub_inventory_code: e.target.value }))}
+                  placeholder="Enter sub inventory code"
+                  className={formErrors.sub_inventory_code ? "border-red-500" : ""}
                 />
-                {formErrors.location_code && <p className="text-sm text-red-500 mt-1">{formErrors.location_code}</p>}
+                {formErrors.sub_inventory_code && <p className="text-sm text-red-500 mt-1">{formErrors.sub_inventory_code}</p>}
+              </div>
+              <div>
+                <Label htmlFor="edit-locator-code">Locator Code *</Label>
+                <Input
+                  id="edit-locator-code"
+                  value={formData.locator_code}
+                  onChange={(e) => setFormData(prev => ({ ...prev, locator_code: e.target.value }))}
+                  placeholder="Enter locator code"
+                  className={formErrors.locator_code ? "border-red-500" : ""}
+                />
+                {formErrors.locator_code && <p className="text-sm text-red-500 mt-1">{formErrors.locator_code}</p>}
               </div>
               <div>
                 <Label htmlFor="edit-name">Name</Label>
@@ -583,23 +578,24 @@ export default function LocationsPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="edit-address">Address</Label>
+                <Label htmlFor="edit-org-code">Organization Code</Label>
                 <Input
-                  id="edit-address"
-                  value={formData.address}
-                  onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
-                  placeholder="Enter address"
+                  id="edit-org-code"
+                  value={formData.org_code}
+                  onChange={(e) => setFormData(prev => ({ ...prev, org_code: e.target.value }))}
+                  placeholder="Enter organization code"
                 />
               </div>
               <div>
                 <Label htmlFor="edit-status">Status</Label>
-                <Select value={formData.status} onValueChange={(value: 'active' | 'inactive') => setFormData(prev => ({ ...prev, status: value }))}>
+                <Select value={formData.status} onValueChange={(value: 'active' | 'inactive' | 'obsolete') => setFormData(prev => ({ ...prev, status: value }))}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="obsolete">Obsolete</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -638,8 +634,12 @@ export default function LocationsPage() {
             {viewingLocation && (
               <div className="space-y-4">
                 <div>
-                  <Label className="text-sm font-medium text-gray-500">Location Code</Label>
-                  <p className="text-sm font-mono bg-gray-50 p-2 rounded border">{viewingLocation.location_code}</p>
+                  <Label className="text-sm font-medium text-gray-500">Sub Inventory Code</Label>
+                  <p className="text-sm font-mono bg-gray-50 p-2 rounded border">{viewingLocation.sub_inventory_code}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Locator Code</Label>
+                  <p className="text-sm font-mono bg-gray-50 p-2 rounded border">{viewingLocation.locator_code}</p>
                 </div>
                 <div>
                   <Label className="text-sm font-medium text-gray-500">Name</Label>
@@ -654,9 +654,9 @@ export default function LocationsPage() {
                   </p>
                 </div>
                 <div>
-                  <Label className="text-sm font-medium text-gray-500">Address</Label>
-                  <p className="text-sm bg-gray-50 p-2 rounded border">
-                    {viewingLocation.address || 'Not specified'}
+                  <Label className="text-sm font-medium text-gray-500">Organization Code</Label>
+                  <p className="text-sm font-mono bg-gray-50 p-2 rounded border">
+                    {viewingLocation.org_code || 'Not specified'}
                   </p>
                 </div>
                 <div>

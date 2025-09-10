@@ -118,7 +118,7 @@ export const categoriesApi = {
   update: async (id: number, data: UpdateCategoryData): Promise<ICategory> => {
     try {
       const response = await apiRequest(`/api/v1/categories/${id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         body: JSON.stringify(data),
       });
       return response.data;
