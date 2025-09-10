@@ -40,7 +40,16 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        // API functionality removed - using mock data
+        const response = await fetch("http://localhost:5000/api/v1/dashboard/data")
+        const result = await response.json()
+        
+        if (result.success) {
+          setDashboardData(result.data)
+        } else {
+          throw new Error('Backend API returned unsuccessful response')
+        }
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error)
         setDashboardData({
           metrics: [
             { name: "categories", value: 0, icon: "/dashboard/assets.svg", label: "Total Categories" },
@@ -58,8 +67,6 @@ export default function DashboardPage() {
           serviceScheduleStatus: { labels: [], data: [] },
           checkInOutActivity: { growth: 0, period: "Annually", chart: { labels: ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] } }
         })
-      } catch (error) {
-        console.error("Error setting dashboard data:", error)
       } finally {
         setLoading(false)
       }
@@ -74,7 +81,6 @@ export default function DashboardPage() {
   async function loadAssets() {
     setIsLoading(true)
     try {
-      // API functionality removed - using mock data
       setAssets([])
       setTotalAssets(0)
     } catch (err) {

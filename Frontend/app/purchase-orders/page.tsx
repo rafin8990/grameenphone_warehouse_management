@@ -34,55 +34,14 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { PageLayout } from '@/components/layout/page-layout'
 import { PageHeader } from '@/components/layout/page-header'
-// API imports removed - using mock interfaces
-interface IPurchaseOrderComplete {
-  id?: number;
-  po_number: string;
-  vendor_id: number;
-  status: string;
-  created_at?: Date;
-  updated_at?: Date;
-}
-
-interface IPurchaseOrderFilters {
-  searchTerm?: string;
-  status?: string;
-  vendor_id?: number;
-  page?: number;
-  limit?: number;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
-}
+import { purchaseOrdersApi, IPurchaseOrderWithItems, PurchaseOrderQueryParams, IPoItemWithRfid } from '@/lib/api/purchase-orders'
+import { itemsApi, IItem } from '@/lib/api/items'
+import { vendorsApi, IVendor } from '@/lib/api/vendors'
+import { rfidApi, IRfidTag } from '@/lib/api/rfid'
 
 interface IPaginationOptions {
   page: number;
   limit: number;
-}
-
-interface IPoItemWithRfid {
-  id?: number;
-  item_id: number;
-  quantity: number;
-  unit_price: number;
-  rfid_tags?: string[];
-}
-
-interface IItem {
-  id?: number;
-  item_code: string;
-  item_description?: string;
-}
-
-interface IVendor {
-  id?: number;
-  vendor_code: string;
-  name: string;
-}
-
-interface IRfidTag {
-  id?: number;
-  tag_id: string;
-  status: string;
 }
 import { generatePurchaseOrderPDF } from '@/lib/utils/pdf-generator'
 
@@ -92,13 +51,13 @@ const statusColors = {
 }
 
 export default function PurchaseOrdersPage() {
-  const [purchaseOrders, setPurchaseOrders] = useState<IPurchaseOrderComplete[]>([])
+  const [purchaseOrders, setPurchaseOrders] = useState<IPurchaseOrderWithItems[]>([])
   const [loading, setLoading] = useState(true)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [selectedPurchaseOrder, setSelectedPurchaseOrder] = useState<IPurchaseOrderComplete | null>(null)
+  const [selectedPurchaseOrder, setSelectedPurchaseOrder] = useState<IPurchaseOrderWithItems | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [pagination, setPagination] = useState<IPaginationOptions>({
@@ -109,11 +68,11 @@ export default function PurchaseOrdersPage() {
   const { toast } = useToast()
 
   // Form state
-  const [formData, setFormData] = useState<Partial<IPurchaseOrderComplete>>({
+  const [formData, setFormData] = useState<Partial<IPurchaseOrderWithItems>>({
     po_number: '',
     vendor_id: 0,
     total_amount: 0,
-    requisition_id: null,
+    requisition_id: undefined,
     status: 'pending'
   })
   
@@ -134,7 +93,7 @@ export default function PurchaseOrdersPage() {
   const fetchAvailableItems = async () => {
     try {
       setItemsLoading(true)
-      const response = await itemApi.getAll({ limit: 1000, item_status: 'active' })
+      const response = await itemsApi.getAll({ limit: 1000, item_status: 'active' })
       setAvailableItems(response.data)
     } catch (error) {
       console.error('Error fetching items:', error)
@@ -150,7 +109,7 @@ export default function PurchaseOrdersPage() {
 
   const fetchAvailableVendors = async () => {
     try {
-      const response = await vendorApi.getAll({ limit: 1000, status: 'active' })
+      const response = await vendorsApi.getAll({ limit: 1000, status: 'active' })
       setAvailableVendors(response.data)
     } catch (error) {
       console.error('Error fetching vendors:', error)
@@ -179,11 +138,13 @@ export default function PurchaseOrdersPage() {
   const fetchPurchaseOrders = async () => {
     try {
       setLoading(true)
-      const filters: IPurchaseOrderFilters = {}
+      const filters: PurchaseOrderQueryParams = {}
       if (searchTerm) filters.searchTerm = searchTerm
-      if (statusFilter && statusFilter !== 'all') filters.status = statusFilter
+      if (statusFilter && statusFilter !== 'all') filters.status = statusFilter as 'pending' | 'received' | 'cancelled'
+      filters.page = pagination.page
+      filters.limit = pagination.limit
 
-      const response = await getAllPurchaseOrders(filters, pagination)
+      const response = await purchaseOrdersApi.getAll(filters)
       setPurchaseOrders(response.data)
       setMeta(response.meta)
     } catch (error) {
@@ -243,10 +204,11 @@ export default function PurchaseOrdersPage() {
     try {
       // Convert string values to proper types for backend validation
       const purchaseOrderData = {
-        ...formData,
+        po_number: formData.po_number!,
         vendor_id: Number(formData.vendor_id),
-        total_amount: formData.total_amount ? Number(formData.total_amount) : null,
-        requisition_id: formData.requisition_id ? Number(formData.requisition_id) : null,
+        total_amount: formData.total_amount ? Number(formData.total_amount) : undefined,
+        requisition_id: formData.requisition_id ? Number(formData.requisition_id) : undefined,
+        status: formData.status as 'pending' | 'received' | 'cancelled',
         items: purchaseOrderItems.map(item => ({
           ...item,
           item_id: Number(item.item_id),
@@ -258,7 +220,7 @@ export default function PurchaseOrdersPage() {
           })) || []
         }))
       }
-      await createPurchaseOrder(purchaseOrderData)
+      await purchaseOrdersApi.create(purchaseOrderData)
       toast({
         title: "Success",
         description: "Purchase order created successfully"
@@ -324,10 +286,11 @@ export default function PurchaseOrdersPage() {
     try {
       // Convert string values to proper types for backend validation
       const purchaseOrderData = {
-        ...formData,
+        po_number: formData.po_number!,
         vendor_id: Number(formData.vendor_id),
-        total_amount: formData.total_amount ? Number(formData.total_amount) : null,
-        requisition_id: formData.requisition_id ? Number(formData.requisition_id) : null,
+        total_amount: formData.total_amount ? Number(formData.total_amount) : undefined,
+        requisition_id: formData.requisition_id ? Number(formData.requisition_id) : undefined,
+        status: formData.status as 'pending' | 'received' | 'cancelled',
         items: purchaseOrderItems.map(item => ({
           ...item,
           item_id: Number(item.item_id),
@@ -339,7 +302,7 @@ export default function PurchaseOrdersPage() {
           })) || []
         }))
       }
-      await updatePurchaseOrder(selectedPurchaseOrder.id, purchaseOrderData)
+      await purchaseOrdersApi.update(selectedPurchaseOrder.id, purchaseOrderData)
       toast({
         title: "Success",
         description: "Purchase order updated successfully"
@@ -362,7 +325,7 @@ export default function PurchaseOrdersPage() {
     if (!selectedPurchaseOrder?.id) return
     
     try {
-      await deletePurchaseOrder(selectedPurchaseOrder.id)
+      await purchaseOrdersApi.delete(selectedPurchaseOrder.id)
       toast({
         title: "Success",
         description: "Purchase order deleted successfully"
@@ -380,7 +343,7 @@ export default function PurchaseOrdersPage() {
     }
   }
 
-  const handleDownloadPDF = async (purchaseOrder: IPurchaseOrderComplete) => {
+  const handleDownloadPDF = async (purchaseOrder: IPurchaseOrderWithItems) => {
     try {
       generatePurchaseOrderPDF(purchaseOrder)
       toast({
@@ -402,7 +365,7 @@ export default function PurchaseOrdersPage() {
       po_number: '',
       vendor_id: 0,
       total_amount: 0,
-      requisition_id: null,
+      requisition_id: undefined,
       status: 'pending'
     })
     setPurchaseOrderItems([])
@@ -467,7 +430,7 @@ export default function PurchaseOrdersPage() {
     setPurchaseOrderItems(updatedItems)
   }
 
-  const openEditDialog = (purchaseOrder: IPurchaseOrderComplete) => {
+  const openEditDialog = (purchaseOrder: IPurchaseOrderWithItems) => {
     setSelectedPurchaseOrder(purchaseOrder)
     setFormData({
       po_number: purchaseOrder.po_number,
@@ -480,12 +443,12 @@ export default function PurchaseOrdersPage() {
     setIsEditDialogOpen(true)
   }
 
-  const openViewDialog = (purchaseOrder: IPurchaseOrderComplete) => {
+  const openViewDialog = (purchaseOrder: IPurchaseOrderWithItems) => {
     setSelectedPurchaseOrder(purchaseOrder)
     setIsViewDialogOpen(true)
   }
 
-  const openDeleteDialog = (purchaseOrder: IPurchaseOrderComplete) => {
+  const openDeleteDialog = (purchaseOrder: IPurchaseOrderWithItems) => {
     setSelectedPurchaseOrder(purchaseOrder)
     setIsDeleteDialogOpen(true)
   }

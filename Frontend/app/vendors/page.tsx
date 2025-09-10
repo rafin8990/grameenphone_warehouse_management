@@ -14,46 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Edit, Trash2, Building2, RefreshCw, Mail, Phone, Globe, CreditCard, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-// API imports removed - using mock interfaces
-interface IVendor {
-  id?: number;
-  vendor_code: string;
-  name: string;
-  short_name?: string;
-  status: 'active' | 'inactive' | 'obsolete' | string;
-  org_code?: string;
-  fusion_vendor_id?: string;
-  tax_id?: string;
-  email?: string;
-  phone?: string;
-  website?: string;
-  payment_terms?: string;
-  currency?: string;
-  credit_limit?: number;
-  created_at?: Date;
-  updated_at?: Date;
-}
-
-interface VendorQueryParams {
-  searchTerm?: string;
-  vendor_code?: string;
-  name?: string;
-  status?: 'active' | 'inactive' | 'obsolete';
-  org_code?: string;
-  fusion_vendor_id?: string;
-  tax_id?: string;
-  email?: string;
-  phone?: string;
-  website?: string;
-  payment_terms?: string;
-  currency?: string;
-  credit_limit_min?: number;
-  credit_limit_max?: number;
-  page?: number;
-  limit?: number;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
-}
+import { vendorsApi, IVendor, VendorQueryParams } from '@/lib/api/vendors';
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function VendorsPage() {
@@ -105,7 +66,7 @@ export default function VendorsPage() {
         sortOrder: 'desc'
       };
 
-      const response = await vendorApi.getAll(params);
+      const response = await vendorsApi.getAll(params);
       setVendors(response.data);
       if (response.meta) {
         setTotalPages(response.meta.totalPages);
@@ -137,7 +98,12 @@ export default function VendorsPage() {
         return;
       }
 
-      await vendorApi.create(formData);
+      // Convert null values to undefined for API compatibility
+      const apiData = {
+        ...formData,
+        credit_limit: formData.credit_limit || undefined
+      };
+      await vendorsApi.create(apiData);
       toast({
         title: "Success",
         description: "Vendor created successfully"
@@ -171,7 +137,12 @@ export default function VendorsPage() {
         return;
       }
 
-      await vendorApi.update(editingVendor.id, formData);
+      // Convert null values to undefined for API compatibility
+      const apiData = {
+        ...formData,
+        credit_limit: formData.credit_limit || undefined
+      };
+      await vendorsApi.update(editingVendor.id, apiData);
       toast({
         title: "Success",
         description: "Vendor updated successfully"
@@ -191,7 +162,7 @@ export default function VendorsPage() {
 
   const handleDelete = async (id: number) => {
     try {
-      await vendorApi.delete(id);
+      await vendorsApi.delete(id);
       toast({
         title: "Success",
         description: "Vendor deleted successfully"

@@ -14,31 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Edit, Trash2, Eye, Filter, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-// API imports removed - using mock interfaces
-interface ICategory {
-  id?: number;
-  code: string;
-  name: string;
-  description?: string | null;
-  parent_id?: number | null;
-  status: 'active' | 'inactive' | string;
-  fusion_category_code?: string | null;
-  created_at?: Date;
-  updated_at?: Date;
-}
-
-interface CategoryQueryParams {
-  searchTerm?: string;
-  code?: string;
-  name?: string;
-  parent_id?: number;
-  status?: 'active' | 'inactive';
-  fusion_category_code?: string;
-  page?: number;
-  limit?: number;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
-}
+import { categoriesApi, ICategory, CategoryQueryParams } from '@/lib/api/categories';
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function CategoriesPage() {

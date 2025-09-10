@@ -9,7 +9,17 @@ export default function MinimalDashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // API functionality removed - using mock data
+        const response = await fetch("http://localhost:5000/api/v1/dashboard/data")
+        const result = await response.json()
+        
+        if (result.success) {
+          setData(result.data)
+        } else {
+          throw new Error('Backend API returned unsuccessful response')
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error)
+        // Set fallback data
         setData({
           metrics: [
             { name: "categories", value: 0, label: "Total Categories" },
@@ -22,8 +32,6 @@ export default function MinimalDashboard() {
             { name: "pending_purchase_orders", value: 0, label: "Pending Purchase Orders" }
           ]
         })
-      } catch (error) {
-        console.error("Error setting data:", error)
       } finally {
         setLoading(false)
       }

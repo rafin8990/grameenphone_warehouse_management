@@ -34,44 +34,12 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { PageLayout } from '@/components/layout/page-layout'
 import { PageHeader } from '@/components/layout/page-header'
-// API imports removed - using mock interfaces
-interface IRequisition {
-  id?: number;
-  requisition_number: string;
-  status: string;
-  created_at?: Date;
-  updated_at?: Date;
-}
-
-interface IRequisitionWithItems extends IRequisition {
-  items: IRequisitionItem[];
-}
-
-interface IRequisitionFilters {
-  searchTerm?: string;
-  status?: string;
-  page?: number;
-  limit?: number;
-  sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
-}
+import { requisitionsApi, IRequisition, IRequisitionWithItems, RequisitionQueryParams, IRequisitionItem } from '@/lib/api/requisitions'
+import { itemsApi, IItem } from '@/lib/api/items'
 
 interface IPaginationOptions {
   page: number;
   limit: number;
-}
-
-interface IRequisitionItem {
-  id?: number;
-  item_id: number;
-  quantity: number;
-  unit_price: number;
-}
-
-interface IItem {
-  id?: number;
-  item_code: string;
-  item_description?: string;
 }
 
 const statusColors = {
@@ -120,7 +88,7 @@ export default function RequisitionsPage() {
   const fetchAvailableItems = async () => {
     try {
       setItemsLoading(true)
-      const response = await itemApi.getAll({ limit: 1000, item_status: 'active' })
+      const response = await itemsApi.getAll({ limit: 1000, item_status: 'active' })
       setAvailableItems(response.data)
     } catch (error) {
       console.error('Error fetching items:', error)
@@ -137,11 +105,13 @@ export default function RequisitionsPage() {
   const fetchRequisitions = async () => {
     try {
       setLoading(true)
-      const filters: IRequisitionFilters = {}
+      const filters: RequisitionQueryParams = {}
       if (searchTerm) filters.searchTerm = searchTerm
-      if (statusFilter && statusFilter !== 'all') filters.status = statusFilter
+      if (statusFilter && statusFilter !== 'all') filters.status = statusFilter as 'open' | 'approved' | 'rejected' | 'closed'
+      filters.page = pagination.page
+      filters.limit = pagination.limit
 
-      const response = await getAllRequisitions(filters, pagination)
+      const response = await requisitionsApi.getAll(filters)
       setRequisitions(response.data)
       setMeta(response.meta)
     } catch (error) {
@@ -191,10 +161,19 @@ export default function RequisitionsPage() {
     
     try {
       const requisitionData = {
-        ...formData,
-        items: requisitionItems
+        requisition_number: formData.requisition_number!,
+        requester_name: formData.requester_name,
+        organization_code: formData.organization_code,
+        status: formData.status as 'open' | 'approved' | 'rejected' | 'closed',
+        requirement: formData.requirement,
+        items: requisitionItems.map(item => ({
+          item_id: item.item_id,
+          quantity: item.quantity,
+          uom: item.uom,
+          remarks: item.remarks
+        }))
       }
-      await createRequisition(requisitionData)
+      await requisitionsApi.create(requisitionData)
       toast({
         title: "Success",
         description: "Requisition created successfully"
@@ -250,10 +229,19 @@ export default function RequisitionsPage() {
     
     try {
       const requisitionData = {
-        ...formData,
-        items: requisitionItems
+        requisition_number: formData.requisition_number,
+        requester_name: formData.requester_name,
+        organization_code: formData.organization_code,
+        status: formData.status as 'open' | 'approved' | 'rejected' | 'closed',
+        requirement: formData.requirement,
+        items: requisitionItems.map(item => ({
+          item_id: item.item_id,
+          quantity: item.quantity,
+          uom: item.uom,
+          remarks: item.remarks
+        }))
       }
-      await updateRequisition(selectedRequisition.id, requisitionData)
+      await requisitionsApi.update(selectedRequisition.id, requisitionData)
       toast({
         title: "Success",
         description: "Requisition updated successfully"
@@ -276,7 +264,7 @@ export default function RequisitionsPage() {
     if (!selectedRequisition?.id) return
     
     try {
-      await deleteRequisition(selectedRequisition.id)
+      await requisitionsApi.delete(selectedRequisition.id)
       toast({
         title: "Success",
         description: "Requisition deleted successfully"
@@ -551,7 +539,7 @@ export default function RequisitionsPage() {
               <Input
                 id="requisition_number"
                 value={formData.requisition_number}
-                onChange={(e) => setFormData(prev => ({ ...prev, requisition_number: e.target.value }))}
+                onChange={(e) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, requisition_number: e.target.value }))}
                 placeholder="Enter requisition number"
               />
             </div>
@@ -560,7 +548,7 @@ export default function RequisitionsPage() {
               <Input
                 id="requester_name"
                 value={formData.requester_name}
-                onChange={(e) => setFormData(prev => ({ ...prev, requester_name: e.target.value }))}
+                onChange={(e) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, requester_name: e.target.value }))}
                 placeholder="Enter requester name"
               />
             </div>
@@ -569,13 +557,13 @@ export default function RequisitionsPage() {
               <Input
                 id="organization_code"
                 value={formData.organization_code}
-                onChange={(e) => setFormData(prev => ({ ...prev, organization_code: e.target.value }))}
+                onChange={(e) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, organization_code: e.target.value }))}
                 placeholder="Enter organization code"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="status">Status *</Label>
-              <Select value={formData.status} onValueChange={(value) => setFormData(prev => ({ ...prev, status: value }))}>
+              <Select value={formData.status} onValueChange={(value) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, status: value }))}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select status" />
                 </SelectTrigger>
@@ -592,7 +580,7 @@ export default function RequisitionsPage() {
                <Textarea
                  id="requirement"
                  value={formData.requirement}
-                 onChange={(e) => setFormData(prev => ({ ...prev, requirement: e.target.value }))}
+                 onChange={(e) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, requirement: e.target.value }))}
                  placeholder="Enter requirement details"
                  rows={3}
                />
@@ -723,7 +711,7 @@ export default function RequisitionsPage() {
               <Input
                 id="edit_requisition_number"
                 value={formData.requisition_number}
-                onChange={(e) => setFormData(prev => ({ ...prev, requisition_number: e.target.value }))}
+                onChange={(e) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, requisition_number: e.target.value }))}
                 placeholder="Enter requisition number"
               />
             </div>
@@ -732,7 +720,7 @@ export default function RequisitionsPage() {
               <Input
                 id="edit_requester_name"
                 value={formData.requester_name}
-                onChange={(e) => setFormData(prev => ({ ...prev, requester_name: e.target.value }))}
+                onChange={(e) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, requester_name: e.target.value }))}
                 placeholder="Enter requester name"
               />
             </div>
@@ -741,13 +729,13 @@ export default function RequisitionsPage() {
               <Input
                 id="edit_organization_code"
                 value={formData.organization_code}
-                onChange={(e) => setFormData(prev => ({ ...prev, organization_code: e.target.value }))}
+                onChange={(e) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, organization_code: e.target.value }))}
                 placeholder="Enter organization code"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit_status">Status *</Label>
-              <Select value={formData.status} onValueChange={(value) => setFormData(prev => ({ ...prev, status: value }))}>
+              <Select value={formData.status} onValueChange={(value) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, status: value }))}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select status" />
                 </SelectTrigger>
@@ -764,7 +752,7 @@ export default function RequisitionsPage() {
                <Textarea
                  id="edit_requirement"
                  value={formData.requirement}
-                 onChange={(e) => setFormData(prev => ({ ...prev, requirement: e.target.value }))}
+                 onChange={(e) => setFormData((prev: Partial<IRequisition>) => ({ ...prev, requirement: e.target.value }))}
                  placeholder="Enter requirement details"
                  rows={3}
                />
