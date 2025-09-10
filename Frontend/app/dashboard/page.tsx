@@ -40,12 +40,35 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const response = await fetch("/api/dashboard")
-        const data = await response.json()
-        setDashboardData(data)
-        console.log("Dashboard data:", data)
+        const response = await fetch("http://localhost:5000/api/v1/dashboard/data")
+        const result = await response.json()
+        
+        if (result.success) {
+          setDashboardData(result.data)
+          console.log("Dashboard data loaded:", result.data)
+        } else {
+          throw new Error('Backend API returned unsuccessful response')
+        }
       } catch (error) {
         console.error("Error fetching dashboard data:", error)
+        // Set fallback data with zeros if backend is not available
+        setDashboardData({
+          metrics: [
+            { name: "categories", value: 0, icon: "/dashboard/assets.svg", label: "Total Categories" },
+            { name: "locations", value: 0, icon: "/dashboard/floors.svg", label: "Total Locations" },
+            { name: "rfid", value: 0, icon: "/dashboard/readers.svg", label: "Available RFID" },
+            { name: "vendors", value: 0, icon: "/dashboard/vendors.svg", label: "Total Vendors" },
+            { name: "items", value: 0, icon: "/dashboard/assets.svg", label: "Total Items" },
+            { name: "requisitions", value: 0, icon: "/dashboard/readers.svg", label: "Available Requisitions" },
+            { name: "purchase_orders", value: 0, icon: "/dashboard/vendors.svg", label: "Total Purchase Orders" },
+            { name: "pending_purchase_orders", value: 0, icon: "/dashboard/readers.svg", label: "Pending Purchase Orders" }
+          ],
+          topAssetCategories: { labels: [], data: [] },
+          assetPerformance: { value: 0, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [0, 0, 0, 0, 0, 0] } },
+          assetQuantity: { value: 0, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [0, 0, 0, 0, 0, 0] } },
+          serviceScheduleStatus: { labels: [], data: [] },
+          checkInOutActivity: { growth: 0, period: "Annually", chart: { labels: ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] } }
+        })
       } finally {
         setLoading(false)
       }
@@ -87,20 +110,21 @@ export default function DashboardPage() {
 
   return (
     <PageLayout activePage="dashboard">
-      {/* Banner */}
-      <div className="bg-[#4DC591] mb-6 flex justify-between rounded-xl">
-        <Image src="/dashboard/right.svg" alt="left" width={200} height={100} />
-        <Image src="/dashboard/litelogo.svg" alt="center" width={400} height={200} />
-        <Image src="/dashboard/left.svg" alt="right" width={200} height={100} />
-      </div>
+      <div className="container mx-auto px-4 py-6">
+        {/* Banner */}
+        <div className="bg-[#4DC591] mb-6 flex justify-between items-center rounded-xl overflow-hidden">
+          <Image src="/dashboard/right.svg" alt="left" width={150} height={80} className="object-contain" />
+          <Image src="/dashboard/litelogo.svg" alt="center" width={300} height={120} className="object-contain" />
+          <Image src="/dashboard/left.svg" alt="right" width={150} height={80} className="object-contain" />
+        </div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 md:gap-6 lg:gap-8 -mt-12 mx-4 md:mx-6 mb-6">
+        {/* Metric Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 md:gap-6 -mt-8 mb-8">
         {metrics.map((metric: DashboardMetric) => (
-          <Card key={metric.name} className="bg-white rounded-xl w-full shadow-lg">
+          <Card key={metric.name} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow">
             <CardContent className="p-4">
-              <div className="flex items-center gap-4 justify-between">
-                <div className="w-16 h-16 md:w-20 md:h-20 relative">
+              <div className="flex flex-col items-center text-center space-y-2">
+                <div className="w-12 h-12 relative">
                   <Image 
                     src={metric.icon} 
                     alt={metric.label} 
@@ -108,9 +132,9 @@ export default function DashboardPage() {
                     className="object-contain"
                   />
                 </div>
-                <div className="text-center flex-1">
-                  <h3 className="text-sm md:text-base font-medium text-emerald-500 truncate">{metric.label}</h3>
-                  <h2 className="pt-1 md:pt-2 text-xl md:text-2xl lg:text-3xl font-bold text-emerald-500">{metric.value.toLocaleString()}</h2>
+                <div className="w-full">
+                  <h3 className="text-xs font-medium text-gray-600 truncate">{metric.label}</h3>
+                  <h2 className="text-lg font-bold text-emerald-600">{metric.value.toLocaleString()}</h2>
                 </div>
               </div>
             </CardContent>
@@ -118,73 +142,72 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <Card className="bg-white">
-          <CardContent className="px-6 py-10">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Check In/Out Activity</h3>
-                <div className="flex items-center">
-                  <span className="text-emerald-500 font-medium text-sm">+{checkInOutActivity.growth}%</span>
-                  <span className="text-gray-500 text-xs ml-1">VS THIS YEAR</span>
+        {/* Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          <Card className="bg-white shadow-lg">
+            <CardContent className="p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Check In/Out Activity</h3>
+                  <div className="flex items-center">
+                    <span className="text-emerald-500 font-medium text-sm">+{checkInOutActivity.growth}%</span>
+                    <span className="text-gray-500 text-xs ml-1">VS THIS YEAR</span>
+                  </div>
+                </div>
+                {/* Tabs */}
+                <div className="flex gap-2 mt-2 sm:mt-0">
+                  {['Daily', 'Weekly', 'Annually'].map(tab => (
+                    <button
+                      key={tab}
+                      className={`px-3 py-1 rounded-full text-sm font-medium ${activeTab === tab ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-500'}`}
+                      onClick={() => setActiveTab(tab)}
+                    >
+                      {tab}
+                    </button>
+                  ))}
                 </div>
               </div>
-              {/* Tabs */}
-              <div className="flex gap-2">
-                {['Daily', 'Weekly', 'Annually'].map(tab => (
-                  <button
-                    key={tab}
-                    className={`px-3 py-1 rounded-full text-sm font-medium ${activeTab === tab ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-500'}`}
-                    onClick={() => setActiveTab(tab)}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              <div className="h-64">
+                <AreaChart labels={areaChartLabels} data={areaChartData} activeTab={activeTab} />
               </div>
-            </div>
-            <div className="h-64">
-              <AreaChart labels={areaChartLabels} data={areaChartData} activeTab={activeTab} />
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card className="bg-white">
-          <CardContent className="px-6 py-10">
-            <div className="flex items-center justify-between mb-4">
-              <div>
+          <Card className="bg-white shadow-lg">
+            <CardContent className="p-6">
+              <div className="mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Top Asset Categories</h3>
                 <div className="text-gray-500 text-xs">LAST YEAR</div>
               </div>
-            </div>
-            <div className="h-64 flex justify-center items-center">
-              <TopAssetCategories labels={topAssetCategories.labels} data={topAssetCategories.data} />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              <div className="h-64 flex justify-center items-center">
+                <TopAssetCategories labels={topAssetCategories.labels} data={topAssetCategories.data} />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-      {/* Sub Cards: Asset Performance, Asset Quantity, Service Schedule Status */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        <AssetPerformanceCard value={assetPerformance.value} status={assetPerformance.status} statusIcon={assetPerformance.statusIcon} chart={assetPerformance.chart} />
-        <AssetQuantityCard value={assetQuantity.value} status={assetQuantity.status} statusIcon={assetQuantity.statusIcon} chart={assetQuantity.chart} />
-        <ServiceScheduleStatusCard labels={serviceScheduleStatus.labels} data={serviceScheduleStatus.data} />
-      </div>
+        {/* Sub Cards: Asset Performance, Asset Quantity, Service Schedule Status */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+          <AssetPerformanceCard value={assetPerformance.value} status={assetPerformance.status} statusIcon={assetPerformance.statusIcon} chart={assetPerformance.chart} />
+          <AssetQuantityCard value={assetQuantity.value} status={assetQuantity.status} statusIcon={assetQuantity.statusIcon} chart={assetQuantity.chart} />
+          <ServiceScheduleStatusCard labels={serviceScheduleStatus.labels} data={serviceScheduleStatus.data} />
+        </div>
 
-      {/* Purchase Orders Section */}
-      <div className="mb-8">
-        <PurchaseOrdersTable limit={5} showViewAll={true} />
-      </div>
+        {/* Purchase Orders Section */}
+        <div className="mb-8">
+          <PurchaseOrdersTable limit={5} showViewAll={true} />
+        </div>
 
-      {/* Assets Table */}
-      <div className="mb-12">
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h3 className="text-lg font-semibold mb-4">Assets Table</h3>
-          <DashboardAssetTable
-            assets={assets}
-            onEdit={() => {}}
-            onDelete={() => {}}
-          />
+        {/* Assets Table */}
+        <div className="mb-8">
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h3 className="text-lg font-semibold mb-4">Assets Table</h3>
+            <DashboardAssetTable
+              assets={assets}
+              onEdit={() => {}}
+              onDelete={() => {}}
+            />
+          </div>
         </div>
       </div>
     </PageLayout>

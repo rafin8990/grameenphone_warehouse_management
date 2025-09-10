@@ -137,7 +137,7 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
     console.error('Error fetching dashboard statistics:', error);
     throw new Error('Failed to fetch dashboard statistics');
   }
-};
+}
 
 const getTopCategories = async (): Promise<{ labels: string[]; data: number[] }> => {
   try {
