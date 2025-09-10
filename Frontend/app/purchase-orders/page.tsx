@@ -53,6 +53,9 @@ const statusColors = {
 export default function PurchaseOrdersPage() {
   const [purchaseOrders, setPurchaseOrders] = useState<IPurchaseOrderWithItems[]>([])
   const [loading, setLoading] = useState(true)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [updateLoading, setUpdateLoading] = useState(false)
+  const [deleteLoading, setDeleteLoading] = useState(false)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
@@ -160,164 +163,174 @@ export default function PurchaseOrdersPage() {
   }
 
   const handleCreate = async () => {
-    // Validation
-    if (!formData.po_number?.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Purchase order number is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    if (!formData.vendor_id || formData.vendor_id === 0) {
-      toast({
-        title: "Validation Error",
-        description: "Vendor is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    if (purchaseOrderItems.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "At least one item is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    // Validate that all items have required fields
-    for (let i = 0; i < purchaseOrderItems.length; i++) {
-      const item = purchaseOrderItems[i]
-      if (!item.item_id || !item.quantity) {
+    try {
+      setCreateLoading(true)
+      // Validation
+      if (!formData.po_number?.trim()) {
         toast({
           title: "Validation Error",
-          description: `Item ${i + 1} must have both item and quantity selected`,
+          description: "Purchase order number is required",
           variant: "destructive"
         })
         return
       }
-    }
-    
-    try {
-      // Convert string values to proper types for backend validation
-      const purchaseOrderData = {
-        po_number: formData.po_number!,
-        vendor_id: Number(formData.vendor_id),
-        total_amount: formData.total_amount ? Number(formData.total_amount) : undefined,
-        requisition_id: formData.requisition_id ? Number(formData.requisition_id) : undefined,
-        status: formData.status as 'pending' | 'received' | 'cancelled',
-        items: purchaseOrderItems.map(item => ({
-          ...item,
-          item_id: Number(item.item_id),
-          quantity: Number(item.quantity),
-          rfid_tags: item.rfid_tags?.map(rfid => ({
-            ...rfid,
-            rfid_id: Number(rfid.rfid_id),
-            quantity: Number(rfid.quantity)
-          })) || []
-        }))
+      
+      if (!formData.vendor_id || formData.vendor_id === 0) {
+        toast({
+          title: "Validation Error",
+          description: "Vendor is required",
+          variant: "destructive"
+        })
+        return
       }
-      await purchaseOrdersApi.create(purchaseOrderData)
-      toast({
-        title: "Success",
-        description: "Purchase order created successfully"
-      })
-      setIsCreateDialogOpen(false)
-      resetForm()
-      setPurchaseOrderItems([])
-      fetchPurchaseOrders()
-    } catch (error) {
-      console.error('Error creating purchase order:', error)
-      toast({
-        title: "Error",
-        description: "Failed to create purchase order",
-        variant: "destructive"
-      })
+      
+      if (purchaseOrderItems.length === 0) {
+        toast({
+          title: "Validation Error",
+          description: "At least one item is required",
+          variant: "destructive"
+        })
+        return
+      }
+      
+      // Validate that all items have required fields
+      for (let i = 0; i < purchaseOrderItems.length; i++) {
+        const item = purchaseOrderItems[i]
+        if (!item.item_id || !item.quantity) {
+          toast({
+            title: "Validation Error",
+            description: `Item ${i + 1} must have both item and quantity selected`,
+            variant: "destructive"
+          })
+          return
+        }
+      }
+      
+      try {
+        // Convert string values to proper types for backend validation
+        const purchaseOrderData = {
+          po_number: formData.po_number!,
+          vendor_id: Number(formData.vendor_id),
+          total_amount: formData.total_amount ? Number(formData.total_amount) : undefined,
+          requisition_id: formData.requisition_id ? Number(formData.requisition_id) : undefined,
+          status: formData.status as 'pending' | 'received' | 'cancelled',
+          items: purchaseOrderItems.map(item => ({
+            ...item,
+            item_id: Number(item.item_id),
+            quantity: Number(item.quantity),
+            rfid_tags: item.rfid_tags?.map(rfid => ({
+              ...rfid,
+              rfid_id: Number(rfid.rfid_id),
+              quantity: Number(rfid.quantity)
+            })) || []
+          }))
+        }
+        await purchaseOrdersApi.create(purchaseOrderData)
+        toast({
+          title: "Success",
+          description: "Purchase order created successfully"
+        })
+        setIsCreateDialogOpen(false)
+        resetForm()
+        setPurchaseOrderItems([])
+        fetchPurchaseOrders()
+      } catch (error) {
+        console.error('Error creating purchase order:', error)
+        toast({
+          title: "Error",
+          description: "Failed to create purchase order",
+          variant: "destructive"
+        })
+      }
+    } finally {
+      setCreateLoading(false)
     }
   }
 
   const handleUpdate = async () => {
     if (!selectedPurchaseOrder?.id) return
     
-    // Validation
-    if (!formData.po_number?.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Purchase order number is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    if (!formData.vendor_id || formData.vendor_id === 0) {
-      toast({
-        title: "Validation Error",
-        description: "Vendor is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    if (purchaseOrderItems.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "At least one item is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    // Validate that all items have required fields
-    for (let i = 0; i < purchaseOrderItems.length; i++) {
-      const item = purchaseOrderItems[i]
-      if (!item.item_id || !item.quantity) {
+    try {
+      setUpdateLoading(true)
+      // Validation
+      if (!formData.po_number?.trim()) {
         toast({
           title: "Validation Error",
-          description: `Item ${i + 1} must have both item and quantity selected`,
+          description: "Purchase order number is required",
           variant: "destructive"
         })
         return
       }
-    }
-    
-    try {
-      // Convert string values to proper types for backend validation
-      const purchaseOrderData = {
-        po_number: formData.po_number!,
-        vendor_id: Number(formData.vendor_id),
-        total_amount: formData.total_amount ? Number(formData.total_amount) : undefined,
-        requisition_id: formData.requisition_id ? Number(formData.requisition_id) : undefined,
-        status: formData.status as 'pending' | 'received' | 'cancelled',
-        items: purchaseOrderItems.map(item => ({
-          ...item,
-          item_id: Number(item.item_id),
-          quantity: Number(item.quantity),
-          rfid_tags: item.rfid_tags?.map(rfid => ({
-            ...rfid,
-            rfid_id: Number(rfid.rfid_id),
-            quantity: Number(rfid.quantity)
-          })) || []
-        }))
+      
+      if (!formData.vendor_id || formData.vendor_id === 0) {
+        toast({
+          title: "Validation Error",
+          description: "Vendor is required",
+          variant: "destructive"
+        })
+        return
       }
-      await purchaseOrdersApi.update(selectedPurchaseOrder.id, purchaseOrderData)
-      toast({
-        title: "Success",
-        description: "Purchase order updated successfully"
-      })
-      setIsEditDialogOpen(false)
-      resetForm()
-      setPurchaseOrderItems([])
-      fetchPurchaseOrders()
-    } catch (error) {
-      console.error('Error updating purchase order:', error)
-      toast({
-        title: "Error",
-        description: "Failed to update purchase order",
-        variant: "destructive"
-      })
+      
+      if (purchaseOrderItems.length === 0) {
+        toast({
+          title: "Validation Error",
+          description: "At least one item is required",
+          variant: "destructive"
+        })
+        return
+      }
+      
+      // Validate that all items have required fields
+      for (let i = 0; i < purchaseOrderItems.length; i++) {
+        const item = purchaseOrderItems[i]
+        if (!item.item_id || !item.quantity) {
+          toast({
+            title: "Validation Error",
+            description: `Item ${i + 1} must have both item and quantity selected`,
+            variant: "destructive"
+          })
+          return
+        }
+      }
+      
+      try {
+        // Convert string values to proper types for backend validation
+        const purchaseOrderData = {
+          po_number: formData.po_number!,
+          vendor_id: Number(formData.vendor_id),
+          total_amount: formData.total_amount ? Number(formData.total_amount) : undefined,
+          requisition_id: formData.requisition_id ? Number(formData.requisition_id) : undefined,
+          status: formData.status as 'pending' | 'received' | 'cancelled',
+          items: purchaseOrderItems.map(item => ({
+            ...item,
+            item_id: Number(item.item_id),
+            quantity: Number(item.quantity),
+            rfid_tags: item.rfid_tags?.map(rfid => ({
+              ...rfid,
+              rfid_id: Number(rfid.rfid_id),
+              quantity: Number(rfid.quantity)
+            })) || []
+          }))
+        }
+        await purchaseOrdersApi.update(selectedPurchaseOrder.id, purchaseOrderData)
+        toast({
+          title: "Success",
+          description: "Purchase order updated successfully"
+        })
+        setIsEditDialogOpen(false)
+        resetForm()
+        setPurchaseOrderItems([])
+        fetchPurchaseOrders()
+      } catch (error) {
+        console.error('Error updating purchase order:', error)
+        toast({
+          title: "Error",
+          description: "Failed to update purchase order",
+          variant: "destructive"
+        })
+      }
+    } finally {
+      setUpdateLoading(false)
     }
   }
 
@@ -325,6 +338,7 @@ export default function PurchaseOrdersPage() {
     if (!selectedPurchaseOrder?.id) return
     
     try {
+      setDeleteLoading(true)
       await purchaseOrdersApi.delete(selectedPurchaseOrder.id)
       toast({
         title: "Success",
@@ -340,6 +354,8 @@ export default function PurchaseOrdersPage() {
         description: "Failed to delete purchase order",
         variant: "destructive"
       })
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
@@ -883,8 +899,19 @@ export default function PurchaseOrdersPage() {
             <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} className="bg-emerald-600 hover:bg-emerald-700">
-              Create Purchase Order
+            <Button 
+              onClick={handleCreate} 
+              disabled={createLoading}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {createLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Creating...
+                </>
+              ) : (
+                'Create Purchase Order'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1121,8 +1148,19 @@ export default function PurchaseOrdersPage() {
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleUpdate} className="bg-emerald-600 hover:bg-emerald-700">
-              Update Purchase Order
+            <Button 
+              onClick={handleUpdate} 
+              disabled={updateLoading}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {updateLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Updating...
+                </>
+              ) : (
+                'Update Purchase Order'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1247,8 +1285,19 @@ export default function PurchaseOrdersPage() {
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleDelete} variant="destructive">
-              Delete
+            <Button 
+              onClick={handleDelete} 
+              disabled={deleteLoading}
+              variant="destructive"
+            >
+              {deleteLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

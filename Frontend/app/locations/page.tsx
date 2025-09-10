@@ -20,6 +20,9 @@ import { PageHeader } from '@/components/layout/page-header';
 export default function LocationsPage() {
   const [locations, setLocations] = useState<ILocation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -81,6 +84,7 @@ export default function LocationsPage() {
 
   const handleCreate = async () => {
     try {
+      setCreateLoading(true);
       setFormErrors({});
       
       // Validation
@@ -113,6 +117,8 @@ export default function LocationsPage() {
         description: error.response?.data?.message || "Failed to create location",
         variant: "destructive"
       });
+    } finally {
+      setCreateLoading(false);
     }
   };
 
@@ -120,6 +126,7 @@ export default function LocationsPage() {
     if (!editingLocation?.id) return;
 
     try {
+      setUpdateLoading(true);
       setFormErrors({});
       
       // Validation
@@ -152,11 +159,14 @@ export default function LocationsPage() {
         description: error.response?.data?.message || "Failed to update location",
         variant: "destructive"
       });
+    } finally {
+      setUpdateLoading(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
+      setDeleteLoading(true);
       await locationsApi.delete(id);
       toast({
         title: "Success",
@@ -170,6 +180,8 @@ export default function LocationsPage() {
         description: error.response?.data?.message || "Failed to delete location",
         variant: "destructive"
       });
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -383,8 +395,18 @@ export default function LocationsPage() {
                       <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                         Cancel
                       </Button>
-                      <Button onClick={handleCreate}>
-                        Create Location
+                      <Button 
+                        onClick={handleCreate}
+                        disabled={createLoading}
+                      >
+                        {createLoading ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Creating...
+                          </>
+                        ) : (
+                          'Create Location'
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -481,9 +503,17 @@ export default function LocationsPage() {
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                                   <AlertDialogAction
                                     onClick={() => location.id && handleDelete(location.id)}
+                                    disabled={deleteLoading}
                                     className="bg-red-600 hover:bg-red-700"
                                   >
-                                    Delete
+                                    {deleteLoading ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                        Deleting...
+                                      </>
+                                    ) : (
+                                      'Delete'
+                                    )}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
@@ -615,8 +645,18 @@ export default function LocationsPage() {
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpdate}>
-                Update Location
+              <Button 
+                onClick={handleUpdate}
+                disabled={updateLoading}
+              >
+                {updateLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Updating...
+                  </>
+                ) : (
+                  'Update Location'
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -20,6 +20,9 @@ import { PageHeader } from '@/components/layout/page-header';
 export default function ItemsPage() {
   const [items, setItems] = useState<IItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [trackingFilter, setTrackingFilter] = useState<string>('all');
@@ -103,6 +106,7 @@ export default function ItemsPage() {
 
   const handleCreate = async () => {
     try {
+      setCreateLoading(true);
       setFormErrors({});
 
       // Validation
@@ -145,6 +149,8 @@ export default function ItemsPage() {
         description: error.response?.data?.message || "Failed to create item",
         variant: "destructive"
       });
+    } finally {
+      setCreateLoading(false);
     }
   };
 
@@ -152,6 +158,7 @@ export default function ItemsPage() {
     if (!editingItem?.id) return;
 
     try {
+      setUpdateLoading(true);
       setFormErrors({});
 
       // Validation
@@ -194,11 +201,14 @@ export default function ItemsPage() {
         description: error.response?.data?.message || "Failed to update item",
         variant: "destructive"
       });
+    } finally {
+      setUpdateLoading(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
+      setDeleteLoading(true);
       await itemsApi.delete(id);
       toast({
         title: "Success",
@@ -212,6 +222,8 @@ export default function ItemsPage() {
         description: error.response?.data?.message || "Failed to delete item",
         variant: "destructive"
       });
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -692,8 +704,18 @@ export default function ItemsPage() {
                       <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                         Cancel
                       </Button>
-                      <Button onClick={handleCreate}>
-                        Create Item
+                      <Button 
+                        onClick={handleCreate}
+                        disabled={createLoading}
+                      >
+                        {createLoading ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Creating...
+                          </>
+                        ) : (
+                          'Create Item'
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -834,9 +856,17 @@ export default function ItemsPage() {
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                                   <AlertDialogAction
                                     onClick={() => item.id && handleDelete(item.id)}
+                                    disabled={deleteLoading}
                                     className="bg-red-600 hover:bg-red-700"
                                   >
-                                    Delete
+                                    {deleteLoading ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                        Deleting...
+                                      </>
+                                    ) : (
+                                      'Delete'
+                                    )}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
@@ -1143,8 +1173,18 @@ export default function ItemsPage() {
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpdate}>
-                Update Item
+              <Button 
+                onClick={handleUpdate}
+                disabled={updateLoading}
+              >
+                {updateLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Updating...
+                  </>
+                ) : (
+                  'Update Item'
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

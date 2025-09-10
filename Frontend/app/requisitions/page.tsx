@@ -52,6 +52,9 @@ const statusColors = {
 export default function RequisitionsPage() {
   const [requisitions, setRequisitions] = useState<IRequisitionWithItems[]>([])
   const [loading, setLoading] = useState(true)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [updateLoading, setUpdateLoading] = useState(false)
+  const [deleteLoading, setDeleteLoading] = useState(false)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
@@ -127,136 +130,146 @@ export default function RequisitionsPage() {
   }
 
   const handleCreate = async () => {
-    // Validation
-    if (!formData.requisition_number?.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Requisition number is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    if (requisitionItems.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "At least one item is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    // Validate that all items have required fields
-    for (let i = 0; i < requisitionItems.length; i++) {
-      const item = requisitionItems[i]
-      if (!item.item_id || !item.quantity) {
+    try {
+      setCreateLoading(true)
+      // Validation
+      if (!formData.requisition_number?.trim()) {
         toast({
           title: "Validation Error",
-          description: `Item ${i + 1} must have both item and quantity selected`,
+          description: "Requisition number is required",
           variant: "destructive"
         })
         return
       }
-    }
-    
-    try {
-      const requisitionData = {
-        requisition_number: formData.requisition_number!,
-        requester_name: formData.requester_name,
-        organization_code: formData.organization_code,
-        status: formData.status as 'open' | 'approved' | 'rejected' | 'closed',
-        requirement: formData.requirement,
-        items: requisitionItems.map(item => ({
-          item_id: item.item_id,
-          quantity: item.quantity,
-          uom: item.uom,
-          remarks: item.remarks
-        }))
+      
+      if (requisitionItems.length === 0) {
+        toast({
+          title: "Validation Error",
+          description: "At least one item is required",
+          variant: "destructive"
+        })
+        return
       }
-      await requisitionsApi.create(requisitionData)
-      toast({
-        title: "Success",
-        description: "Requisition created successfully"
-      })
-      setIsCreateDialogOpen(false)
-      resetForm()
-      setRequisitionItems([])
-      fetchRequisitions()
-    } catch (error) {
-      console.error('Error creating requisition:', error)
-      toast({
-        title: "Error",
-        description: "Failed to create requisition",
-        variant: "destructive"
-      })
+      
+      // Validate that all items have required fields
+      for (let i = 0; i < requisitionItems.length; i++) {
+        const item = requisitionItems[i]
+        if (!item.item_id || !item.quantity) {
+          toast({
+            title: "Validation Error",
+            description: `Item ${i + 1} must have both item and quantity selected`,
+            variant: "destructive"
+          })
+          return
+        }
+      }
+      
+      try {
+        const requisitionData = {
+          requisition_number: formData.requisition_number!,
+          requester_name: formData.requester_name,
+          organization_code: formData.organization_code,
+          status: formData.status as 'open' | 'approved' | 'rejected' | 'closed',
+          requirement: formData.requirement,
+          items: requisitionItems.map(item => ({
+            item_id: item.item_id,
+            quantity: item.quantity,
+            uom: item.uom,
+            remarks: item.remarks
+          }))
+        }
+        await requisitionsApi.create(requisitionData)
+        toast({
+          title: "Success",
+          description: "Requisition created successfully"
+        })
+        setIsCreateDialogOpen(false)
+        resetForm()
+        setRequisitionItems([])
+        fetchRequisitions()
+      } catch (error) {
+        console.error('Error creating requisition:', error)
+        toast({
+          title: "Error",
+          description: "Failed to create requisition",
+          variant: "destructive"
+        })
+      }
+    } finally {
+      setCreateLoading(false)
     }
   }
 
   const handleUpdate = async () => {
     if (!selectedRequisition?.id) return
     
-    // Validation
-    if (!formData.requisition_number?.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Requisition number is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    if (requisitionItems.length === 0) {
-      toast({
-        title: "Validation Error",
-        description: "At least one item is required",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    // Validate that all items have required fields
-    for (let i = 0; i < requisitionItems.length; i++) {
-      const item = requisitionItems[i]
-      if (!item.item_id || !item.quantity) {
+    try {
+      setUpdateLoading(true)
+      // Validation
+      if (!formData.requisition_number?.trim()) {
         toast({
           title: "Validation Error",
-          description: `Item ${i + 1} must have both item and quantity selected`,
+          description: "Requisition number is required",
           variant: "destructive"
         })
         return
       }
-    }
-    
-    try {
-      const requisitionData = {
-        requisition_number: formData.requisition_number,
-        requester_name: formData.requester_name,
-        organization_code: formData.organization_code,
-        status: formData.status as 'open' | 'approved' | 'rejected' | 'closed',
-        requirement: formData.requirement,
-        items: requisitionItems.map(item => ({
-          item_id: item.item_id,
-          quantity: item.quantity,
-          uom: item.uom,
-          remarks: item.remarks
-        }))
+      
+      if (requisitionItems.length === 0) {
+        toast({
+          title: "Validation Error",
+          description: "At least one item is required",
+          variant: "destructive"
+        })
+        return
       }
-      await requisitionsApi.update(selectedRequisition.id, requisitionData)
-      toast({
-        title: "Success",
-        description: "Requisition updated successfully"
-      })
-      setIsEditDialogOpen(false)
-      resetForm()
-      setRequisitionItems([])
-      fetchRequisitions()
-    } catch (error) {
-      console.error('Error updating requisition:', error)
-      toast({
-        title: "Error",
-        description: "Failed to update requisition",
-        variant: "destructive"
-      })
+      
+      // Validate that all items have required fields
+      for (let i = 0; i < requisitionItems.length; i++) {
+        const item = requisitionItems[i]
+        if (!item.item_id || !item.quantity) {
+          toast({
+            title: "Validation Error",
+            description: `Item ${i + 1} must have both item and quantity selected`,
+            variant: "destructive"
+          })
+          return
+        }
+      }
+      
+      try {
+        const requisitionData = {
+          requisition_number: formData.requisition_number,
+          requester_name: formData.requester_name,
+          organization_code: formData.organization_code,
+          status: formData.status as 'open' | 'approved' | 'rejected' | 'closed',
+          requirement: formData.requirement,
+          items: requisitionItems.map(item => ({
+            item_id: item.item_id,
+            quantity: item.quantity,
+            uom: item.uom,
+            remarks: item.remarks
+          }))
+        }
+        await requisitionsApi.update(selectedRequisition.id, requisitionData)
+        toast({
+          title: "Success",
+          description: "Requisition updated successfully"
+        })
+        setIsEditDialogOpen(false)
+        resetForm()
+        setRequisitionItems([])
+        fetchRequisitions()
+      } catch (error) {
+        console.error('Error updating requisition:', error)
+        toast({
+          title: "Error",
+          description: "Failed to update requisition",
+          variant: "destructive"
+        })
+      }
+    } finally {
+      setUpdateLoading(false)
     }
   }
 
@@ -264,6 +277,7 @@ export default function RequisitionsPage() {
     if (!selectedRequisition?.id) return
     
     try {
+      setDeleteLoading(true)
       await requisitionsApi.delete(selectedRequisition.id)
       toast({
         title: "Success",
@@ -279,6 +293,8 @@ export default function RequisitionsPage() {
         description: "Failed to delete requisition",
         variant: "destructive"
       })
+    } finally {
+      setDeleteLoading(false)
     }
   }
 
@@ -594,7 +610,7 @@ export default function RequisitionsPage() {
                    {requisitionItems.length > 0 && (
                      <p className="text-sm text-gray-600 mt-1">
                        Total: {requisitionItems.length} item(s) | 
-                       Quantity: {requisitionItems.reduce((sum, item) => sum + (item.quantity || 0), 0)}
+                       Quantity: {requisitionItems.reduce((sum, item) => sum + (item.quantity || 0), 0).toFixed(2)}
                      </p>
                    )}
                  </div>
@@ -689,8 +705,19 @@ export default function RequisitionsPage() {
             <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} className="bg-emerald-600 hover:bg-emerald-700">
-              Create Requisition
+            <Button 
+              onClick={handleCreate} 
+              disabled={createLoading}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {createLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Creating...
+                </>
+              ) : (
+                'Create Requisition'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -766,7 +793,7 @@ export default function RequisitionsPage() {
                    {requisitionItems.length > 0 && (
                      <p className="text-sm text-gray-600 mt-1">
                        Total: {requisitionItems.length} item(s) | 
-                       Quantity: {requisitionItems.reduce((sum, item) => sum + (item.quantity || 0), 0)}
+                       Quantity: {requisitionItems.reduce((sum, item) => sum + (item.quantity || 0), 0).toFixed(2)}
                      </p>
                    )}
                  </div>
@@ -861,8 +888,19 @@ export default function RequisitionsPage() {
             <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleUpdate} className="bg-emerald-600 hover:bg-emerald-700">
-              Update Requisition
+            <Button 
+              onClick={handleUpdate} 
+              disabled={updateLoading}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {updateLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Updating...
+                </>
+              ) : (
+                'Update Requisition'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -934,7 +972,7 @@ export default function RequisitionsPage() {
                               {item.item?.item_code || '-'}
                             </TableCell>
                             <TableCell>{item.item?.item_description || '-'}</TableCell>
-                            <TableCell>{item.quantity}</TableCell>
+                            <TableCell>{Number(item.quantity).toFixed(2)}</TableCell>
                             <TableCell>{item.uom || item.item?.uom_primary || '-'}</TableCell>
                             <TableCell>{item.remarks || '-'}</TableCell>
                           </TableRow>
@@ -967,8 +1005,19 @@ export default function RequisitionsPage() {
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleDelete} variant="destructive">
-              Delete
+            <Button 
+              onClick={handleDelete} 
+              disabled={deleteLoading}
+              variant="destructive"
+            >
+              {deleteLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

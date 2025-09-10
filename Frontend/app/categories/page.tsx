@@ -20,6 +20,9 @@ import { PageHeader } from '@/components/layout/page-header';
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<ICategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -79,6 +82,7 @@ export default function CategoriesPage() {
 
   const handleCreate = async () => {
     try {
+      setCreateLoading(true);
       setFormErrors({});
       
       // Validation
@@ -111,6 +115,8 @@ export default function CategoriesPage() {
         description: "Failed to create category",
         variant: "destructive"
       });
+    } finally {
+      setCreateLoading(false);
     }
   };
 
@@ -118,6 +124,7 @@ export default function CategoriesPage() {
     if (!editingCategory?.id) return;
 
     try {
+      setUpdateLoading(true);
       setFormErrors({});
       
       // Validation
@@ -150,11 +157,14 @@ export default function CategoriesPage() {
         description: "Failed to update category",
         variant: "destructive"
       });
+    } finally {
+      setUpdateLoading(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
+      setDeleteLoading(true);
       await categoriesApi.delete(id);
       toast({
         title: "Success",
@@ -168,6 +178,8 @@ export default function CategoriesPage() {
         description: "Failed to delete category",
         variant: "destructive"
       });
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -342,8 +354,18 @@ export default function CategoriesPage() {
                       <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                         Cancel
                       </Button>
-                      <Button onClick={handleCreate}>
-                        Create Category
+                      <Button 
+                        onClick={handleCreate}
+                        disabled={createLoading}
+                      >
+                        {createLoading ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Creating...
+                          </>
+                        ) : (
+                          'Create Category'
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -434,9 +456,17 @@ export default function CategoriesPage() {
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                                   <AlertDialogAction
                                     onClick={() => category.id && handleDelete(category.id)}
+                                    disabled={deleteLoading}
                                     className="bg-red-600 hover:bg-red-700"
                                   >
-                                    Delete
+                                    {deleteLoading ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                        Deleting...
+                                      </>
+                                    ) : (
+                                      'Delete'
+                                    )}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
@@ -547,8 +577,18 @@ export default function CategoriesPage() {
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpdate}>
-                Update Category
+              <Button 
+                onClick={handleUpdate}
+                disabled={updateLoading}
+              >
+                {updateLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Updating...
+                  </>
+                ) : (
+                  'Update Category'
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

@@ -20,6 +20,9 @@ import { PageHeader } from '@/components/layout/page-header';
 export default function VendorsPage() {
   const [vendors, setVendors] = useState<IVendor[]>([]);
   const [loading, setLoading] = useState(true);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -86,6 +89,7 @@ export default function VendorsPage() {
 
   const handleCreate = async () => {
     try {
+      setCreateLoading(true);
       setFormErrors({});
       
       // Validation
@@ -118,6 +122,8 @@ export default function VendorsPage() {
         description: error.response?.data?.message || "Failed to create vendor",
         variant: "destructive"
       });
+    } finally {
+      setCreateLoading(false);
     }
   };
 
@@ -125,6 +131,7 @@ export default function VendorsPage() {
     if (!editingVendor?.id) return;
 
     try {
+      setUpdateLoading(true);
       setFormErrors({});
       
       // Validation
@@ -157,11 +164,14 @@ export default function VendorsPage() {
         description: error.response?.data?.message || "Failed to update vendor",
         variant: "destructive"
       });
+    } finally {
+      setUpdateLoading(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
+      setDeleteLoading(true);
       await vendorsApi.delete(id);
       toast({
         title: "Success",
@@ -175,6 +185,8 @@ export default function VendorsPage() {
         description: error.response?.data?.message || "Failed to delete vendor",
         variant: "destructive"
       });
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -474,8 +486,18 @@ export default function VendorsPage() {
                       <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                         Cancel
                       </Button>
-                      <Button onClick={handleCreate}>
-                        Create Vendor
+                      <Button 
+                        onClick={handleCreate}
+                        disabled={createLoading}
+                      >
+                        {createLoading ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Creating...
+                          </>
+                        ) : (
+                          'Create Vendor'
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -595,9 +617,17 @@ export default function VendorsPage() {
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                                   <AlertDialogAction
                                     onClick={() => vendor.id && handleDelete(vendor.id)}
+                                    disabled={deleteLoading}
                                     className="bg-red-600 hover:bg-red-700"
                                   >
-                                    Delete
+                                    {deleteLoading ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                        Deleting...
+                                      </>
+                                    ) : (
+                                      'Delete'
+                                    )}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
@@ -784,8 +814,18 @@ export default function VendorsPage() {
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpdate}>
-                Update Vendor
+              <Button 
+                onClick={handleUpdate}
+                disabled={updateLoading}
+              >
+                {updateLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Updating...
+                  </>
+                ) : (
+                  'Update Vendor'
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

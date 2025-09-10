@@ -19,6 +19,9 @@ import { PageHeader } from '@/components/layout/page-header';
 export default function RfidPage() {
   const [rfidTags, setRfidTags] = useState<IRfidTag[]>([]);
   const [loading, setLoading] = useState(true);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [updateLoading, setUpdateLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -74,6 +77,7 @@ export default function RfidPage() {
 
   const handleCreate = async () => {
     try {
+      setCreateLoading(true);
       setFormErrors({});
       
       // Validation
@@ -97,6 +101,8 @@ export default function RfidPage() {
         description: error.response?.data?.message || "Failed to create RFID tag",
         variant: "destructive"
       });
+    } finally {
+      setCreateLoading(false);
     }
   };
 
@@ -104,6 +110,7 @@ export default function RfidPage() {
     if (!editingRfidTag?.id) return;
 
     try {
+      setUpdateLoading(true);
       setFormErrors({});
       
       // Validation
@@ -127,11 +134,14 @@ export default function RfidPage() {
         description: error.response?.data?.message || "Failed to update RFID tag",
         variant: "destructive"
       });
+    } finally {
+      setUpdateLoading(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     try {
+      setDeleteLoading(true);
       await rfidApi.delete(id);
       toast({
         title: "Success",
@@ -145,6 +155,8 @@ export default function RfidPage() {
         description: error.response?.data?.message || "Failed to delete RFID tag",
         variant: "destructive"
       });
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -327,8 +339,18 @@ export default function RfidPage() {
                       <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
                         Cancel
                       </Button>
-                      <Button onClick={handleCreate}>
-                        Create RFID Tag
+                      <Button 
+                        onClick={handleCreate}
+                        disabled={createLoading}
+                      >
+                        {createLoading ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Creating...
+                          </>
+                        ) : (
+                          'Create RFID Tag'
+                        )}
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -414,9 +436,17 @@ export default function RfidPage() {
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                                   <AlertDialogAction
                                     onClick={() => rfidTag.id && handleDelete(rfidTag.id)}
+                                    disabled={deleteLoading}
                                     className="bg-red-600 hover:bg-red-700"
                                   >
-                                    Delete
+                                    {deleteLoading ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                        Deleting...
+                                      </>
+                                    ) : (
+                                      'Delete'
+                                    )}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
@@ -501,8 +531,18 @@ export default function RfidPage() {
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleUpdate}>
-                Update RFID Tag
+              <Button 
+                onClick={handleUpdate}
+                disabled={updateLoading}
+              >
+                {updateLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Updating...
+                  </>
+                ) : (
+                  'Update RFID Tag'
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
