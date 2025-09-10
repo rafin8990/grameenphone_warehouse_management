@@ -531,14 +531,12 @@ export default function PurchaseOrdersPage() {
           </SelectContent>
         </Select>
         <Button
-          variant="outline"
           onClick={resetFilters}
           disabled={loading}
         >
           Reset
         </Button>
         <Button
-          variant="outline"
           onClick={fetchPurchaseOrders}
           disabled={loading}
         >
@@ -600,8 +598,6 @@ export default function PurchaseOrdersPage() {
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       <Button
-                        variant="ghost"
-                        size="sm"
                         onClick={() => handleDownloadPDF(purchaseOrder)}
                         className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                         title="Download PDF"
@@ -609,24 +605,18 @@ export default function PurchaseOrdersPage() {
                         <Download className="h-4 w-4" />
                       </Button>
                       <Button
-                        variant="ghost"
-                        size="sm"
                         onClick={() => openViewDialog(purchaseOrder)}
                         className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
                       <Button
-                        variant="ghost"
-                        size="sm"
                         onClick={() => openEditDialog(purchaseOrder)}
                         className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
                       >
                         <Edit className="h-4 w-4" />
                       </Button>
                       <Button
-                        variant="ghost"
-                        size="sm"
                         onClick={() => openDeleteDialog(purchaseOrder)}
                         className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
@@ -649,16 +639,12 @@ export default function PurchaseOrdersPage() {
           </div>
           <div className="flex gap-2">
             <Button
-              variant="outline"
-              size="sm"
               onClick={() => setPagination(prev => ({ ...prev, page: prev.page! - 1 }))}
               disabled={!meta.hasPrev}
             >
               Previous
             </Button>
             <Button
-              variant="outline"
-              size="sm"
               onClick={() => setPagination(prev => ({ ...prev, page: prev.page! + 1 }))}
               disabled={!meta.hasNext}
             >
@@ -743,8 +729,6 @@ export default function PurchaseOrdersPage() {
                 </div>
                 <Button
                   type="button"
-                  variant="outline"
-                  size="sm"
                   onClick={addPurchaseOrderItem}
                 >
                   <Plus className="h-4 w-4 mr-2" />
@@ -813,8 +797,6 @@ export default function PurchaseOrdersPage() {
                           <Label className="text-sm font-medium">RFID Tags</Label>
                           <Button
                             type="button"
-                            variant="outline"
-                            size="sm"
                             onClick={() => addRfidTagToItem(index)}
                           >
                             <Plus className="h-3 w-3 mr-1" />
@@ -858,8 +840,6 @@ export default function PurchaseOrdersPage() {
                                 <div className="flex items-end">
                                   <Button
                                     type="button"
-                                    variant="outline"
-                                    size="sm"
                                     onClick={() => removeRfidTagFromItem(index, rfidIndex)}
                                     className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8"
                                   >
@@ -880,8 +860,6 @@ export default function PurchaseOrdersPage() {
                       <div className="flex justify-end">
                         <Button
                           type="button"
-                          variant="outline"
-                          size="sm"
                           onClick={() => removePurchaseOrderItem(index)}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
                         >
@@ -896,7 +874,7 @@ export default function PurchaseOrdersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+            <Button  onClick={() => setIsCreateDialogOpen(false)}>
               Cancel
             </Button>
             <Button 
@@ -992,8 +970,6 @@ export default function PurchaseOrdersPage() {
                 </div>
                 <Button
                   type="button"
-                  variant="outline"
-                  size="sm"
                   onClick={addPurchaseOrderItem}
                 >
                   <Plus className="h-4 w-4 mr-2" />
@@ -1062,8 +1038,6 @@ export default function PurchaseOrdersPage() {
                           <Label className="text-sm font-medium">RFID Tags</Label>
                           <Button
                             type="button"
-                            variant="outline"
-                            size="sm"
                             onClick={() => addRfidTagToItem(index)}
                           >
                             <Plus className="h-3 w-3 mr-1" />
@@ -1107,8 +1081,6 @@ export default function PurchaseOrdersPage() {
                                 <div className="flex items-end">
                                   <Button
                                     type="button"
-                                    variant="outline"
-                                    size="sm"
                                     onClick={() => removeRfidTagFromItem(index, rfidIndex)}
                                     className="text-red-600 hover:text-red-700 hover:bg-red-50 h-8"
                                   >
@@ -1129,8 +1101,6 @@ export default function PurchaseOrdersPage() {
                       <div className="flex justify-end">
                         <Button
                           type="button"
-                          variant="outline"
-                          size="sm"
                           onClick={() => removePurchaseOrderItem(index)}
                           className="text-red-600 hover:text-red-700 hover:bg-red-50"
                         >
@@ -1145,7 +1115,7 @@ export default function PurchaseOrdersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+            <Button  onClick={() => setIsEditDialogOpen(false)}>
               Cancel
             </Button>
             <Button 
@@ -1242,7 +1212,7 @@ export default function PurchaseOrdersPage() {
                                 <div key={rfidIndex} className="flex items-center justify-between bg-white p-2 rounded border text-xs">
                                   <span className="font-medium">{rfid.tag_uid || `RFID ${rfid.rfid_id}`}</span>
                                   <span className="text-gray-500">Qty: {rfid.quantity}</span>
-                                  <Badge variant="outline" className="text-xs">
+                                  <Badge  className="text-xs">
                                     {rfid.rfid_status || 'Unknown'}
                                   </Badge>
                                 </div>
@@ -1258,7 +1228,7 @@ export default function PurchaseOrdersPage() {
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
+            <Button  onClick={() => setIsViewDialogOpen(false)}>
               Close
             </Button>
             <Button 
@@ -1282,13 +1252,12 @@ export default function PurchaseOrdersPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+            <Button  onClick={() => setIsDeleteDialogOpen(false)}>
               Cancel
             </Button>
             <Button 
               onClick={handleDelete} 
               disabled={deleteLoading}
-              variant="destructive"
             >
               {deleteLoading ? (
                 <>

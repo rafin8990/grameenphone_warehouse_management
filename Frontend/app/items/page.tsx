@@ -396,7 +396,7 @@ export default function ItemsPage() {
                       onChange={(e) => setSearchTerm(e.target.value)}
                       onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
                     />
-                    <Button onClick={handleSearch} size="sm">
+                    <Button onClick={handleSearch} >
                       <Search className="h-4 w-4" />
                     </Button>
                   </div>
@@ -431,7 +431,7 @@ export default function ItemsPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={handleReset} size="sm">
+                <Button  onClick={handleReset} >
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Reset
                 </Button>
@@ -701,7 +701,7 @@ export default function ItemsPage() {
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
+                      <Button  onClick={() => setIsCreateDialogOpen(false)}>
                         Cancel
                       </Button>
                       <Button 
@@ -767,7 +767,6 @@ export default function ItemsPage() {
                         </TableCell>
                         <TableCell>
                           <Badge 
-                            variant={getStatusBadgeVariant(item.item_status)}
                             className={getStatusColor(item.item_status)}
                           >
                             {item.item_status}
@@ -775,7 +774,6 @@ export default function ItemsPage() {
                         </TableCell>
                         <TableCell>
                           <Badge 
-                            variant={getTrackingBadgeVariant(item.tracking_method)}
                             className={getTrackingColor(item.tracking_method)}
                           >
                             {item.tracking_method}
@@ -826,22 +824,18 @@ export default function ItemsPage() {
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
                             <Button
-                              variant="ghost"
-                              size="sm"
                               onClick={() => handleView(item)}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
                             <Button
-                              variant="ghost"
-                              size="sm"
                               onClick={() => handleEdit(item)}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700">
+                                <Button   className="text-red-600 hover:text-red-700">
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </AlertDialogTrigger>
@@ -888,16 +882,12 @@ export default function ItemsPage() {
                 </div>
                 <div className="flex gap-2">
                   <Button
-                    variant="outline"
-                    size="sm"
                     onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                     disabled={currentPage === 1}
                   >
                     Previous
                   </Button>
                   <Button
-                    variant="outline"
-                    size="sm"
                     onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                     disabled={currentPage === totalPages}
                   >
@@ -1170,7 +1160,7 @@ export default function ItemsPage() {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              <Button  onClick={() => setIsEditDialogOpen(false)}>
                 Cancel
               </Button>
               <Button 
@@ -1216,7 +1206,6 @@ export default function ItemsPage() {
                     <div>
                       <Label className="text-sm font-medium text-gray-600">Status</Label>
                       <Badge 
-                        variant={getStatusBadgeVariant(viewingItem.item_status)}
                         className={getStatusColor(viewingItem.item_status)}
                       >
                         {viewingItem.item_status}
@@ -1240,7 +1229,6 @@ export default function ItemsPage() {
                     <div>
                       <Label className="text-sm font-medium text-gray-600">Tracking Method</Label>
                       <Badge 
-                        variant={getTrackingBadgeVariant(viewingItem.tracking_method)}
                         className={getTrackingColor(viewingItem.tracking_method)}
                       >
                         {viewingItem.tracking_method}
@@ -1373,7 +1361,7 @@ export default function ItemsPage() {
               </div>
             )}
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
+              <Button  onClick={() => setIsViewDialogOpen(false)}>
                 Close
               </Button>
             </DialogFooter>

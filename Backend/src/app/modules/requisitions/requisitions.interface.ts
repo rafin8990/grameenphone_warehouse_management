@@ -62,4 +62,14 @@ export type IRequisitionItemWithItemDetails = IRequisitionItem & {
     created_at?: Date;
     updated_at?: Date;
   };
+  stock_balance?: {
+    total_on_hand: number;
+    available_locations?: Array<{
+      location_id: number;
+      sub_inventory_code: string;
+      locator_code: string;
+      location_name?: string | null;
+      on_hand_qty: number;
+    }>;
+  };
 };

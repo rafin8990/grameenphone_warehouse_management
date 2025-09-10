@@ -5,6 +5,7 @@ import { IGenericResponse } from '../../../interfaces/common';
 import { IPaginationOptions } from '../../../interfaces/pagination';
 import pool from '../../../utils/dbClient';
 import { IRequisition, IRequisitionItem, IRequisitionWithItems } from './requisitions.interface';
+import { StockBalanceService } from '../stock-balance/stock-balance.service';
 
 const createRequisition = async (data: IRequisition & { items?: any[] }): Promise<IRequisitionWithItems | null> => {
   const client = await pool.connect();
@@ -261,6 +262,57 @@ const getAllRequisitions = async (
       ...requisition,
       items: itemsByRequisitionId[requisition.id!] || []
     }));
+
+    // Add stock balance information for all items
+    const allItemIds = Object.values(itemsByRequisitionId)
+      .flat()
+      .map((item: any) => item.item_id);
+    if (allItemIds.length > 0) {
+      try {
+        const stockBalances = await StockBalanceService.getStockBalanceForItems(allItemIds);
+        const totalStockBalances = await StockBalanceService.getTotalStockBalanceForItems(allItemIds);
+        
+        // Group stock balances by item_id
+        const stockByItemId = stockBalances.reduce((acc, stock) => {
+          if (!acc[stock.item_id]) {
+            acc[stock.item_id] = [];
+          }
+          acc[stock.item_id].push({
+            location_id: stock.location_id,
+            sub_inventory_code: stock.location?.sub_inventory_code || '',
+            locator_code: stock.location?.locator_code || '',
+            location_name: stock.location?.name || null,
+            on_hand_qty: stock.on_hand_qty
+          });
+          return acc;
+        }, {} as Record<number, any[]>);
+
+        // Add stock balance to each requisition item
+        requisitionsWithItems = requisitionsWithItems.map(requisition => ({
+          ...requisition,
+          items: requisition.items?.map(item => ({
+            ...item,
+            stock_balance: {
+              total_on_hand: totalStockBalances[item.item_id] || 0,
+              available_locations: stockByItemId[item.item_id] || []
+            }
+          })) || []
+        }));
+      } catch (error) {
+        console.error('Error fetching stock balances:', error);
+        // Continue without stock balance information if there's an error
+        requisitionsWithItems = requisitionsWithItems.map(requisition => ({
+          ...requisition,
+          items: requisition.items?.map(item => ({
+            ...item,
+            stock_balance: {
+              total_on_hand: 0,
+              available_locations: []
+            }
+          })) || []
+        }));
+      }
+    }
   }
 
   const countQuery = `SELECT COUNT(*) FROM requisitions r ${whereClause};`;
@@ -345,6 +397,50 @@ const getSingleRequisition = async (id: number): Promise<IRequisitionWithItems |
   }
 
   const requisition = result.rows[0];
+  
+  // Add stock balance information for items
+  if (requisition.items && requisition.items.length > 0) {
+    try {
+      const itemIds = requisition.items.map((item: any) => item.item_id);
+      const stockBalances = await StockBalanceService.getStockBalanceForItems(itemIds);
+      const totalStockBalances = await StockBalanceService.getTotalStockBalanceForItems(itemIds);
+      
+      // Group stock balances by item_id
+      const stockByItemId = stockBalances.reduce((acc, stock) => {
+        if (!acc[stock.item_id]) {
+          acc[stock.item_id] = [];
+        }
+        acc[stock.item_id].push({
+          location_id: stock.location_id,
+          sub_inventory_code: stock.location?.sub_inventory_code || '',
+          locator_code: stock.location?.locator_code || '',
+          location_name: stock.location?.name || null,
+          on_hand_qty: stock.on_hand_qty
+        });
+        return acc;
+      }, {} as Record<number, any[]>);
+
+      // Add stock balance to each item
+      requisition.items = requisition.items.map((item: any) => ({
+        ...item,
+        stock_balance: {
+          total_on_hand: totalStockBalances[item.item_id] || 0,
+          available_locations: stockByItemId[item.item_id] || []
+        }
+      }));
+    } catch (error) {
+      console.error('Error fetching stock balances for single requisition:', error);
+      // Continue without stock balance information if there's an error
+      requisition.items = requisition.items.map((item: any) => ({
+        ...item,
+        stock_balance: {
+          total_on_hand: 0,
+          available_locations: []
+        }
+      }));
+    }
+  }
+
   return {
     ...requisition,
     items: requisition.items || [],
@@ -517,6 +613,50 @@ const updateRequisition = async (
     }
 
     const requisition = result.rows[0];
+    
+    // Add stock balance information for items
+    if (requisition.items && requisition.items.length > 0) {
+      try {
+        const itemIds = requisition.items.map((item: any) => item.item_id);
+        const stockBalances = await StockBalanceService.getStockBalanceForItems(itemIds);
+        const totalStockBalances = await StockBalanceService.getTotalStockBalanceForItems(itemIds);
+        
+        // Group stock balances by item_id
+        const stockByItemId = stockBalances.reduce((acc, stock) => {
+          if (!acc[stock.item_id]) {
+            acc[stock.item_id] = [];
+          }
+          acc[stock.item_id].push({
+            location_id: stock.location_id,
+            sub_inventory_code: stock.location?.sub_inventory_code || '',
+            locator_code: stock.location?.locator_code || '',
+            location_name: stock.location?.name || null,
+            on_hand_qty: stock.on_hand_qty
+          });
+          return acc;
+        }, {} as Record<number, any[]>);
+
+        // Add stock balance to each item
+        requisition.items = requisition.items.map((item: any) => ({
+          ...item,
+          stock_balance: {
+            total_on_hand: totalStockBalances[item.item_id] || 0,
+            available_locations: stockByItemId[item.item_id] || []
+          }
+        }));
+      } catch (error) {
+        console.error('Error fetching stock balances for updated requisition:', error);
+        // Continue without stock balance information if there's an error
+        requisition.items = requisition.items.map((item: any) => ({
+          ...item,
+          stock_balance: {
+            total_on_hand: 0,
+            available_locations: []
+          }
+        }));
+      }
+    }
+
     return {
       ...requisition,
       items: requisition.items || [],

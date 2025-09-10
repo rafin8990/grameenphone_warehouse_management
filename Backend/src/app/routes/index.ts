@@ -6,6 +6,7 @@ import { LocationRoutes } from '../modules/locations/locations.route';
 import { PurchaseOrderRoutes } from '../modules/purchase-orders/purchase-orders.route';
 import { RequisitionRoutes } from '../modules/requisitions/requisitions.route';
 import { RfidRoutes } from '../modules/rfid/rfid.route';
+import { StockBalanceRoutes } from '../modules/stock-balance/stock-balance.route';
 import { VendorRoutes } from '../modules/vendors/vendors.route';
 
 const router = express.Router();
@@ -42,6 +43,10 @@ const moduleRoutes = [
   {
     path: '/purchase-orders',
     routes: PurchaseOrderRoutes,
+  },
+  {
+    path: '/stock-balances',
+    routes: StockBalanceRoutes,
   },
 ];
 

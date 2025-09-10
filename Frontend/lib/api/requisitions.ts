@@ -42,6 +42,16 @@ export interface IRequisitionItem {
     item_description?: string;
     uom_primary?: string;
   };
+  stock_balance?: {
+    total_on_hand: number;
+    available_locations?: Array<{
+      location_id: number;
+      sub_inventory_code: string;
+      locator_code: string;
+      location_name?: string | null;
+      on_hand_qty: number;
+    }>;
+  };
 }
 
 export interface IRequisitionWithItems extends IRequisition {
