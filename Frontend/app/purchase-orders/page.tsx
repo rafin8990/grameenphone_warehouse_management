@@ -34,19 +34,56 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { PageLayout } from '@/components/layout/page-layout'
 import { PageHeader } from '@/components/layout/page-header'
-import {
-  getAllPurchaseOrders,
-  createPurchaseOrder,
-  updatePurchaseOrder,
-  deletePurchaseOrder,
-  IPurchaseOrderComplete,
-  IPurchaseOrderFilters,
-  IPaginationOptions,
-  IPoItemWithRfid
-} from '@/lib/api/purchase-order'
-import { itemApi, IItem } from '@/lib/api/item'
-import { vendorApi, IVendor } from '@/lib/api/vendor'
-import { rfidApi, IRfidTag } from '@/lib/api/rfid'
+// API imports removed - using mock interfaces
+interface IPurchaseOrderComplete {
+  id?: number;
+  po_number: string;
+  vendor_id: number;
+  status: string;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface IPurchaseOrderFilters {
+  searchTerm?: string;
+  status?: string;
+  vendor_id?: number;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+interface IPaginationOptions {
+  page: number;
+  limit: number;
+}
+
+interface IPoItemWithRfid {
+  id?: number;
+  item_id: number;
+  quantity: number;
+  unit_price: number;
+  rfid_tags?: string[];
+}
+
+interface IItem {
+  id?: number;
+  item_code: string;
+  item_description?: string;
+}
+
+interface IVendor {
+  id?: number;
+  vendor_code: string;
+  name: string;
+}
+
+interface IRfidTag {
+  id?: number;
+  tag_id: string;
+  status: string;
+}
 import { generatePurchaseOrderPDF } from '@/lib/utils/pdf-generator'
 
 const statusColors = {

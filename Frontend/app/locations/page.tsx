@@ -14,7 +14,49 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Edit, Trash2, MapPin, RefreshCw, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { locationApi, ILocation, LocationQueryParams } from '@/lib/api/location';
+// API imports removed - using mock interfaces
+interface ILocation {
+  id?: number;
+  location_code: string;
+  name: string;
+  description?: string | null;
+  location_type: 'warehouse' | 'room' | 'shelf' | 'bin' | string;
+  parent_id?: number | null;
+  status: 'active' | 'inactive' | string;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  postal_code?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  capacity?: number | null;
+  current_occupancy?: number | null;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface LocationQueryParams {
+  searchTerm?: string;
+  location_code?: string;
+  name?: string;
+  location_type?: 'warehouse' | 'room' | 'shelf' | 'bin';
+  parent_id?: number;
+  status?: 'active' | 'inactive';
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  postal_code?: string;
+  capacity_min?: number;
+  capacity_max?: number;
+  current_occupancy_min?: number;
+  current_occupancy_max?: number;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function LocationsPage() {

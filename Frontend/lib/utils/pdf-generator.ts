@@ -1,5 +1,13 @@
 import jsPDF from 'jspdf'
-import { IPurchaseOrderComplete } from '@/lib/api/purchase-order'
+// API imports removed - using mock interface
+interface IPurchaseOrderComplete {
+  id?: number;
+  po_number: string;
+  vendor_id: number;
+  status: string;
+  created_at?: Date;
+  updated_at?: Date;
+}
 
 export const generatePurchaseOrderPDF = (purchaseOrder: IPurchaseOrderComplete): void => {
   const doc = new jsPDF()

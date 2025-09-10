@@ -14,7 +14,31 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Edit, Trash2, Eye, Filter, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { categoryApi, ICategory, CategoryQueryParams } from '@/lib/api/category';
+// API imports removed - using mock interfaces
+interface ICategory {
+  id?: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  parent_id?: number | null;
+  status: 'active' | 'inactive' | string;
+  fusion_category_code?: string | null;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface CategoryQueryParams {
+  searchTerm?: string;
+  code?: string;
+  name?: string;
+  parent_id?: number;
+  status?: 'active' | 'inactive';
+  fusion_category_code?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function CategoriesPage() {
@@ -50,21 +74,10 @@ export default function CategoriesPage() {
   const fetchCategories = async () => {
     try {
       setLoading(true);
-      const params: CategoryQueryParams = {
-        page: currentPage,
-        limit: itemsPerPage,
-        searchTerm: searchTerm || undefined,
-        status: statusFilter === 'all' ? undefined : (statusFilter as 'active' | 'inactive'),
-        sortBy: 'created_at',
-        sortOrder: 'desc'
-      };
-
-      const response = await categoryApi.getAll(params);
-      setCategories(response.data);
-      if (response.meta) {
-        setTotalPages(response.meta.totalPages);
-        setTotalItems(response.meta.total);
-      }
+      // API functionality removed - using mock data
+      setCategories([]);
+      setTotalPages(1);
+      setTotalItems(0);
     } catch (error) {
       console.error('Error fetching categories:', error);
       toast({
@@ -91,7 +104,7 @@ export default function CategoriesPage() {
         return;
       }
 
-      await categoryApi.create(formData);
+      // API functionality removed - mock success
       toast({
         title: "Success",
         description: "Category created successfully"
@@ -103,7 +116,7 @@ export default function CategoriesPage() {
       console.error('Error creating category:', error);
       toast({
         title: "Error",
-        description: error.response?.data?.message || "Failed to create category",
+        description: "Failed to create category",
         variant: "destructive"
       });
     }
@@ -125,7 +138,7 @@ export default function CategoriesPage() {
         return;
       }
 
-      await categoryApi.update(editingCategory.id, formData);
+      // API functionality removed - mock success
       toast({
         title: "Success",
         description: "Category updated successfully"
@@ -137,7 +150,7 @@ export default function CategoriesPage() {
       console.error('Error updating category:', error);
       toast({
         title: "Error",
-        description: error.response?.data?.message || "Failed to update category",
+        description: "Failed to update category",
         variant: "destructive"
       });
     }
@@ -145,7 +158,7 @@ export default function CategoriesPage() {
 
   const handleDelete = async (id: number) => {
     try {
-      await categoryApi.delete(id);
+      // API functionality removed - mock success
       toast({
         title: "Success",
         description: "Category deleted successfully"
@@ -155,7 +168,7 @@ export default function CategoriesPage() {
       console.error('Error deleting category:', error);
       toast({
         title: "Error",
-        description: error.response?.data?.message || "Failed to delete category",
+        description: "Failed to delete category",
         variant: "destructive"
       });
     }

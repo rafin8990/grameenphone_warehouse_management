@@ -44,15 +44,21 @@ export function PluginProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true)
       setError(null)
-      const response = await fetch('/api/plugins')
-      const data: PluginResponse = await response.json()
-      
-      if (data.success) {
-        setPlugins(data.data.available)
-        setInstalledPlugins(data.data.installed)
-      } else {
-        setError('Failed to load plugins')
-      }
+      // API functionality removed - using mock data
+      const mockPlugins: Plugin[] = [
+        {
+          id: 'analytics',
+          name: 'Analytics Dashboard',
+          description: 'Advanced analytics and reporting',
+          icon: '📊',
+          version: '1.0.0',
+          category: 'Analytics',
+          features: ['Reports', 'Charts', 'Export'],
+          isInstalled: false
+        }
+      ]
+      setPlugins(mockPlugins)
+      setInstalledPlugins([])
     } catch (error) {
       console.error('Error fetching plugins:', error)
       setError('Failed to load plugins')
@@ -71,23 +77,9 @@ export function PluginProvider({ children }: { children: ReactNode }) {
 
   const installPlugin = async (pluginId: string): Promise<boolean> => {
     try {
-      const response = await fetch('/api/plugins', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action: 'install', pluginId }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        await fetchPlugins() // Refresh the plugin list
-        return true
-      } else {
-        console.error('Failed to install plugin:', data.error)
-        return false
-      }
+      // API functionality removed - mock success
+      setInstalledPlugins(prev => [...prev, pluginId])
+      return true
     } catch (error) {
       console.error('Error installing plugin:', error)
       return false
@@ -96,23 +88,9 @@ export function PluginProvider({ children }: { children: ReactNode }) {
 
   const uninstallPlugin = async (pluginId: string): Promise<boolean> => {
     try {
-      const response = await fetch('/api/plugins', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ action: 'uninstall', pluginId }),
-      })
-
-      const data = await response.json()
-
-      if (data.success) {
-        await fetchPlugins() // Refresh the plugin list
-        return true
-      } else {
-        console.error('Failed to uninstall plugin:', data.error)
-        return false
-      }
+      // API functionality removed - mock success
+      setInstalledPlugins(prev => prev.filter(id => id !== pluginId))
+      return true
     } catch (error) {
       console.error('Error uninstalling plugin:', error)
       return false

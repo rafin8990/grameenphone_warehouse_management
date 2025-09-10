@@ -25,14 +25,14 @@ export async function getCountries(): Promise<Country[]> {
   }
 
   try {
-    const response = await fetch('https://countriesnow.space/api/v0.1/countries')
-    const data: CountriesResponse = await response.json()
-    
-    if (!data.error) {
-      countriesCache = data.data
-      return data.data
-    }
-    throw new Error(data.msg)
+    // API functionality removed - using mock data
+    const mockCountries: Country[] = [
+      { iso2: 'BD', iso3: 'BGD', country: 'Bangladesh', cities: ['Dhaka', 'Chittagong', 'Sylhet'] },
+      { iso2: 'US', iso3: 'USA', country: 'United States', cities: ['New York', 'Los Angeles', 'Chicago'] },
+      { iso2: 'GB', iso3: 'GBR', country: 'United Kingdom', cities: ['London', 'Manchester', 'Birmingham'] }
+    ]
+    countriesCache = mockCountries
+    return mockCountries
   } catch (error) {
     console.error('Error fetching countries:', error)
     return []
@@ -41,19 +41,13 @@ export async function getCountries(): Promise<Country[]> {
 
 export async function getCitiesByCountry(country: string): Promise<string[]> {
   try {
-    const response = await fetch('https://countriesnow.space/api/v0.1/countries/cities', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ country }),
-    })
-    const data: CitiesResponse = await response.json()
-    
-    if (!data.error) {
-      return data.data
+    // API functionality removed - using mock data
+    const mockCities: Record<string, string[]> = {
+      'Bangladesh': ['Dhaka', 'Chittagong', 'Sylhet', 'Rajshahi', 'Khulna'],
+      'United States': ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Phoenix'],
+      'United Kingdom': ['London', 'Manchester', 'Birmingham', 'Liverpool', 'Leeds']
     }
-    throw new Error(data.msg)
+    return mockCities[country] || []
   } catch (error) {
     console.error('Error fetching cities:', error)
     return []

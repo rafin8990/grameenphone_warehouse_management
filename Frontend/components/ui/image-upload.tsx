@@ -14,20 +14,9 @@ export function ImageUpload({ value, onChange, onRemove }: ImageUploadProps) {
     if (!file) return
 
     try {
-      const formData = new FormData()
-      formData.append("file", file)
-
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      })
-
-      if (!response.ok) {
-        throw new Error("Upload failed")
-      }
-
-      const data = await response.json()
-      onChange(data.url)
+      // API functionality removed - using mock URL
+      const mockUrl = URL.createObjectURL(file)
+      onChange(mockUrl)
     } catch (error) {
       console.error("Error uploading image:", error)
     }

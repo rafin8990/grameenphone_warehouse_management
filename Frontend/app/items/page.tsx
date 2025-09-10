@@ -14,7 +14,72 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Edit, Trash2, RefreshCw, Ruler, Weight, Hash, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { itemApi, IItem, ItemQueryParams } from '@/lib/api/item';
+// API imports removed - using mock interfaces
+interface IItem {
+  id?: number;
+  item_code: string;
+  item_description?: string | null;
+  item_status: 'active' | 'inactive' | 'obsolete' | string;
+  org_code?: string | null;
+  category_id?: number | null;
+  capex_opex?: 'CAPEX' | 'OPEX' | null;
+  tracking_method: 'NONE' | 'SERIAL' | 'LOT' | string;
+  uom_primary: string;
+  uom_secondary?: string | null;
+  conversion_to_primary?: number | null;
+  brand?: string | null;
+  model?: string | null;
+  manufacturer?: string | null;
+  hsn_code?: string | null;
+  barcode_upc?: string | null;
+  barcode_ean?: string | null;
+  gs1_gtin?: string | null;
+  rfid_supported?: boolean | null;
+  default_location_id?: number | null;
+  min_qty?: number | null;
+  max_qty?: number | null;
+  unit_weight_kg?: number | null;
+  unit_length_cm?: number | null;
+  unit_width_cm?: number | null;
+  unit_height_cm?: number | null;
+  images?: string[] | null;
+  specs?: Record<string, any> | null;
+  attributes?: Record<string, any> | null;
+  fusion_item_id?: string | null;
+  fusion_category?: string | null;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface ItemQueryParams {
+  searchTerm?: string;
+  item_code?: string;
+  item_description?: string;
+  org_code?: string;
+  category_id?: number;
+  item_status?: 'active' | 'inactive' | 'obsolete';
+  capex_opex?: 'CAPEX' | 'OPEX';
+  tracking_method?: 'NONE' | 'SERIAL' | 'LOT';
+  brand?: string;
+  model?: string;
+  manufacturer?: string;
+  hsn_code?: string;
+  barcode_upc?: string;
+  barcode_ean?: string;
+  gs1_gtin?: string;
+  rfid_supported?: boolean;
+  default_location_id?: number;
+  min_qty_min?: number;
+  min_qty_max?: number;
+  max_qty_min?: number;
+  max_qty_max?: number;
+  unit_weight_min?: number;
+  unit_weight_max?: number;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function ItemsPage() {
@@ -73,22 +138,10 @@ export default function ItemsPage() {
   const fetchItems = async () => {
     try {
       setLoading(true);
-      const params: ItemQueryParams = {
-        page: currentPage,
-        limit: itemsPerPage,
-        searchTerm: searchTerm || undefined,
-        item_status: statusFilter === 'all' ? undefined : (statusFilter as 'active' | 'inactive' | 'obsolete'),
-        tracking_method: trackingFilter === 'all' ? undefined : (trackingFilter as 'NONE' | 'SERIAL' | 'LOT'),
-        sortBy: 'created_at',
-        sortOrder: 'desc'
-      };
-
-      const response = await itemApi.getAll(params);
-      setItems(response.data);
-      if (response.meta) {
-        setTotalPages(response.meta.totalPages);
-        setTotalItems(response.meta.total);
-      }
+      // API functionality removed - using mock data
+      setItems([]);
+      setTotalPages(1);
+      setTotalItems(0);
     } catch (error) {
       console.error('Error fetching items:', error);
       toast({
@@ -115,7 +168,7 @@ export default function ItemsPage() {
         return;
       }
 
-      await itemApi.create(formData);
+      // API functionality removed - mock success
       toast({
         title: "Success",
         description: "Item created successfully"
@@ -127,7 +180,7 @@ export default function ItemsPage() {
       console.error('Error creating item:', error);
       toast({
         title: "Error",
-        description: error.response?.data?.message || "Failed to create item",
+        description: "Failed to create item",
         variant: "destructive"
       });
     }
@@ -149,7 +202,7 @@ export default function ItemsPage() {
         return;
       }
 
-      await itemApi.update(editingItem.id, formData);
+      // API functionality removed - mock success
       toast({
         title: "Success",
         description: "Item updated successfully"
@@ -161,7 +214,7 @@ export default function ItemsPage() {
       console.error('Error updating item:', error);
       toast({
         title: "Error",
-        description: error.response?.data?.message || "Failed to update item",
+        description: "Failed to update item",
         variant: "destructive"
       });
     }
@@ -169,7 +222,7 @@ export default function ItemsPage() {
 
   const handleDelete = async (id: number) => {
     try {
-      await itemApi.delete(id);
+      // API functionality removed - mock success
       toast({
         title: "Success",
         description: "Item deleted successfully"
@@ -179,7 +232,7 @@ export default function ItemsPage() {
       console.error('Error deleting item:', error);
       toast({
         title: "Error",
-        description: error.response?.data?.message || "Failed to delete item",
+        description: "Failed to delete item",
         variant: "destructive"
       });
     }

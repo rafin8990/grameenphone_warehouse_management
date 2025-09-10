@@ -14,7 +14,46 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Edit, Trash2, Building2, RefreshCw, Mail, Phone, Globe, CreditCard, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { vendorApi, IVendor, VendorQueryParams } from '@/lib/api/vendor';
+// API imports removed - using mock interfaces
+interface IVendor {
+  id?: number;
+  vendor_code: string;
+  name: string;
+  short_name?: string;
+  status: 'active' | 'inactive' | 'obsolete' | string;
+  org_code?: string;
+  fusion_vendor_id?: string;
+  tax_id?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  payment_terms?: string;
+  currency?: string;
+  credit_limit?: number;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface VendorQueryParams {
+  searchTerm?: string;
+  vendor_code?: string;
+  name?: string;
+  status?: 'active' | 'inactive' | 'obsolete';
+  org_code?: string;
+  fusion_vendor_id?: string;
+  tax_id?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  payment_terms?: string;
+  currency?: string;
+  credit_limit_min?: number;
+  credit_limit_max?: number;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function VendorsPage() {

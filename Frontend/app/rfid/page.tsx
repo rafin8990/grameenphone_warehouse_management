@@ -13,7 +13,29 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Edit, Trash2, Radio, RefreshCw, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { rfidApi, IRfidTag, RfidQueryParams } from '@/lib/api/rfid';
+// API imports removed - using mock interfaces
+interface IRfidTag {
+  id?: number;
+  tag_id: string;
+  status: 'available' | 'assigned' | 'damaged' | 'lost' | string;
+  item_id?: number | null;
+  location_id?: number | null;
+  assigned_at?: Date | null;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface RfidQueryParams {
+  searchTerm?: string;
+  tag_id?: string;
+  status?: 'available' | 'assigned' | 'damaged' | 'lost';
+  item_id?: number;
+  location_id?: number;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function RfidPage() {

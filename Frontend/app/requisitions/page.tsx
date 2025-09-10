@@ -34,18 +34,45 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
 import { PageLayout } from '@/components/layout/page-layout'
 import { PageHeader } from '@/components/layout/page-header'
-import {
-  getAllRequisitions,
-  createRequisition,
-  updateRequisition,
-  deleteRequisition,
-  IRequisition,
-  IRequisitionWithItems,
-  IRequisitionFilters,
-  IPaginationOptions,
-  IRequisitionItem
-} from '@/lib/api/requisition'
-import { itemApi, IItem } from '@/lib/api/item'
+// API imports removed - using mock interfaces
+interface IRequisition {
+  id?: number;
+  requisition_number: string;
+  status: string;
+  created_at?: Date;
+  updated_at?: Date;
+}
+
+interface IRequisitionWithItems extends IRequisition {
+  items: IRequisitionItem[];
+}
+
+interface IRequisitionFilters {
+  searchTerm?: string;
+  status?: string;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+interface IPaginationOptions {
+  page: number;
+  limit: number;
+}
+
+interface IRequisitionItem {
+  id?: number;
+  item_id: number;
+  quantity: number;
+  unit_price: number;
+}
+
+interface IItem {
+  id?: number;
+  item_code: string;
+  item_description?: string;
+}
 
 const statusColors = {
   open: 'bg-blue-100 text-blue-800',

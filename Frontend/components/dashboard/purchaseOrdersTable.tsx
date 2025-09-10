@@ -5,7 +5,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Eye, Download, Calendar, Building2 } from 'lucide-react'
-import { getAllPurchaseOrders, IPurchaseOrderComplete } from '@/lib/api/purchase-order'
+// API imports removed - using mock interface
+interface IPurchaseOrderComplete {
+  id?: number;
+  po_number: string;
+  vendor_id: number;
+  status: string;
+  created_at?: Date;
+  updated_at?: Date;
+}
 import { generatePurchaseOrderPDF } from '@/lib/utils/pdf-generator'
 import { useToast } from '@/hooks/use-toast'
 import Link from 'next/link'
