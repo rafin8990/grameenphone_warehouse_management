@@ -1,9 +1,8 @@
 import pool from '../utils/dbClient';
 
-export const name = '1756727138269_create_rfid_table';
+export const name = '1756727138260_create_rfid_table';
 
 export const run = async () => {
-  // Write your SQL query here
   await pool.query(`
    CREATE TABLE IF NOT EXISTS rfid_tags (
       id            BIGSERIAL PRIMARY KEY,
@@ -13,5 +12,10 @@ export const run = async () => {
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+  await pool.query(`
+    ALTER TABLE rfid_tags
+    ADD COLUMN parent_tag_id BIGINT REFERENCES rfid_tags(id) ON DELETE SET NULL,
+    ADD COLUMN current_location_id BIGINT REFERENCES locations(id) ON DELETE SET NULL;
   `);
 };

@@ -15,6 +15,18 @@ const createRfidTagZodSchema = z.object({
         }),
       })
       .default('available'),
+    parent_tag_id: z
+      .number()
+      .int()
+      .positive('Parent tag ID must be a positive integer')
+      .optional()
+      .nullable(),
+    current_location_id: z
+      .number()
+      .int()
+      .positive('Current location ID must be a positive integer')
+      .optional()
+      .nullable(),
   }),
 });
 
@@ -34,6 +46,18 @@ const updateRfidTagZodSchema = z.object({
         }),
       })
       .optional(),
+    parent_tag_id: z
+      .number()
+      .int()
+      .positive('Parent tag ID must be a positive integer')
+      .optional()
+      .nullable(),
+    current_location_id: z
+      .number()
+      .int()
+      .positive('Current location ID must be a positive integer')
+      .optional()
+      .nullable(),
   }),
 });
 

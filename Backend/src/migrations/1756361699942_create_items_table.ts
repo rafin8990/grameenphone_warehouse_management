@@ -1,6 +1,6 @@
 import pool from '../utils/dbClient';
 
-export const name = '1756361699942_create_items_table';
+export const name = '1756361699941_create_items_table';
 
 export const run = async () => {
   // Write your SQL query here

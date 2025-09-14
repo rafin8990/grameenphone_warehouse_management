@@ -21,8 +21,8 @@ const createPurchaseOrder = async (
     // Insert purchase order
     const insertPoQuery = `
       INSERT INTO purchase_orders 
-        (po_number, vendor_id, total_amount, requisition_id, status)
-      VALUES ($1, $2, $3, $4, $5)
+        (po_number, vendor_id, total_amount, requisition_id, status, currency, status_reason)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *;
     `;
 
@@ -32,6 +32,8 @@ const createPurchaseOrder = async (
       data.total_amount ?? null,
       data.requisition_id ?? null,
       data.status ?? 'pending',
+      data.currency ?? 'BDT',
+      data.status_reason ?? null,
     ];
 
     const poResult = await client.query(insertPoQuery, poValues);
@@ -43,12 +45,19 @@ const createPurchaseOrder = async (
       for (const item of data.items) {
         const insertItemQuery = `
           INSERT INTO po_items 
-            (po_id, item_id, quantity, unit)
-          VALUES ($1, $2, $3, $4)
+            (po_id, item_id, quantity, unit, unit_price, tax_percent)
+          VALUES ($1, $2, $3, $4, $5, $6)
           RETURNING *;
         `;
 
-        const itemValues = [poId, item.item_id, item.quantity, item.unit];
+        const itemValues = [
+          poId, 
+          item.item_id, 
+          item.quantity, 
+          item.unit,
+          item.unit_price ?? null,
+          item.tax_percent ?? null
+        ];
         const itemResult = await client.query(insertItemQuery, itemValues);
         const poItem = itemResult.rows[0];
 

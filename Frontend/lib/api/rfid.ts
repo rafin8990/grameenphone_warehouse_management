@@ -22,9 +22,8 @@ export interface IRfidTag {
   id?: number;
   tag_uid: string;
   status: 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged';
-  item_id?: number | null;
-  location_id?: number | null;
-  assigned_at?: Date | null;
+  parent_tag_id?: number | null;
+  current_location_id?: number | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -33,8 +32,8 @@ export interface RfidQueryParams {
   searchTerm?: string;
   tag_uid?: string;
   status?: 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged';
-  item_id?: number;
-  location_id?: number;
+  parent_tag_id?: number;
+  current_location_id?: number;
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -54,11 +53,15 @@ export interface RfidResponse {
 export interface CreateRfidData {
   tag_uid: string;
   status: 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged';
+  parent_tag_id?: number | null;
+  current_location_id?: number | null;
 }
 
 export interface UpdateRfidData {
-  tag_uid: string;
-  status: 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged';
+  tag_uid?: string;
+  status?: 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged';
+  parent_tag_id?: number | null;
+  current_location_id?: number | null;
 }
 
 export const rfidApi = {

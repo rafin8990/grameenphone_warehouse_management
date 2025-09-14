@@ -1,6 +1,6 @@
 import pool from '../utils/dbClient';
 
-export const name = '1756788264313_create_purchase_orders_table';
+export const name = '1756788264312_create_purchase_orders_table';
 
 export const run = async () => {
   // Write your SQL query here
@@ -32,5 +32,26 @@ export const run = async () => {
      rfid_id BIGINT NOT NULL REFERENCES rfid_tags(id),
      quantity NUMERIC(18,6) DEFAULT 1
  );
+   `);
+
+
+  await pool.query(`
+    ALTER TABLE purchase_orders
+      ADD COLUMN currency VARCHAR(10) DEFAULT 'BDT',
+      ADD COLUMN status_reason VARCHAR(120),
+      ALTER COLUMN status TYPE VARCHAR(20) USING status::VARCHAR(20);
+    
+    ALTER TABLE purchase_orders
+      DROP CONSTRAINT IF EXISTS purchase_orders_status_check;
+    ALTER TABLE purchase_orders
+      ADD CONSTRAINT purchase_orders_status_check
+      CHECK (status IN ('pending','approved','partially_received','received','closed','cancelled'));
+
+    ALTER TABLE po_items
+      ADD COLUMN unit_price NUMERIC(18,2),
+      ADD COLUMN tax_percent NUMERIC(5,2),
+      ADD COLUMN line_total NUMERIC(18,2) GENERATED ALWAYS AS (quantity * COALESCE(unit_price,0)) STORED;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_poitem_rfid ON po_items_rfid (po_item_id, rfid_id);
    `);
 };

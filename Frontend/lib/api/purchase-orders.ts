@@ -26,7 +26,9 @@ export interface IPurchaseOrder {
   vendor_code?: string;
   total_amount?: number;
   requisition_id?: number;
-  status: 'pending' | 'received' | 'cancelled' | string;
+  status: 'pending' | 'approved' | 'partially_received' | 'received' | 'closed' | 'cancelled';
+  currency?: string;
+  status_reason?: string;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -41,7 +43,8 @@ export interface IPoItem {
   quantity: number;
   unit?: string;
   unit_price?: number;
-  total_price?: number;
+  tax_percent?: number;
+  line_total?: number;
 }
 
 export interface IPoItemWithRfid extends IPoItem {
@@ -75,7 +78,9 @@ export interface CreatePurchaseOrderData {
   vendor_id: number;
   total_amount?: number;
   requisition_id?: number;
-  status?: 'pending' | 'received' | 'cancelled';
+  status?: 'pending' | 'approved' | 'partially_received' | 'received' | 'closed' | 'cancelled';
+  currency?: string;
+  status_reason?: string;
   items: Omit<IPoItemWithRfid, 'id' | 'po_id'>[];
 }
 
@@ -84,7 +89,9 @@ export interface UpdatePurchaseOrderData {
   vendor_id?: number;
   total_amount?: number;
   requisition_id?: number;
-  status?: 'pending' | 'received' | 'cancelled';
+  status?: 'pending' | 'approved' | 'partially_received' | 'received' | 'closed' | 'cancelled';
+  currency?: string;
+  status_reason?: string;
   items?: Omit<IPoItemWithRfid, 'id' | 'po_id'>[];
 }
 

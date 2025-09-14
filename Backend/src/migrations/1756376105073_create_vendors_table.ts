@@ -1,6 +1,6 @@
 import pool from '../utils/dbClient';
 
-export const name = '1756376105073_create_vendors_table';
+export const name = '1756376105072_create_vendors_table';
 
 export const run = async () => {
   // Write your SQL query here

@@ -12,8 +12,8 @@ const createRfidTag = async (data: IRfidTag): Promise<IRfidTag | null> => {
     await client.query('BEGIN');
 
     const insertQuery = `
-      INSERT INTO rfid_tags (tag_uid, status)
-      VALUES ($1, $2)
+      INSERT INTO rfid_tags (tag_uid, status, parent_tag_id, current_location_id)
+      VALUES ($1, $2, $3, $4)
       ON CONFLICT (tag_uid) DO NOTHING
       RETURNING *;
     `;
@@ -21,6 +21,8 @@ const createRfidTag = async (data: IRfidTag): Promise<IRfidTag | null> => {
     const values = [
       data.tag_uid,
       data.status ?? 'available',
+      data.parent_tag_id || null,
+      data.current_location_id || null,
     ];
 
     const result = await client.query(insertQuery, values);
@@ -140,6 +142,16 @@ const updateRfidTag = async (id: number, data: Partial<IRfidTag>): Promise<IRfid
     if (data.status !== undefined) {
       updateFields.push(`status = $${paramIndex++}`);
       values.push(data.status);
+    }
+
+    if (data.parent_tag_id !== undefined) {
+      updateFields.push(`parent_tag_id = $${paramIndex++}`);
+      values.push(data.parent_tag_id);
+    }
+
+    if (data.current_location_id !== undefined) {
+      updateFields.push(`current_location_id = $${paramIndex++}`);
+      values.push(data.current_location_id);
     }
 
     updateFields.push(`updated_at = NOW()`);

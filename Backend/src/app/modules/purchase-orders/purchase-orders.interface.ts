@@ -4,7 +4,9 @@ export type IPurchaseOrder = {
   vendor_id: number;
   total_amount?: number | null;
   requisition_id?: number | null;
-  status: 'pending' | 'received';
+  status: 'pending' | 'approved' | 'partially_received' | 'received' | 'closed' | 'cancelled';
+  currency?: string;
+  status_reason?: string | null;
   created_at?: Date;
   updated_at?: Date;
 };
@@ -15,6 +17,9 @@ export type IPoItem = {
   item_id: number;
   quantity: number;
   unit: string;
+  unit_price?: number | null;
+  tax_percent?: number | null;
+  line_total?: number | null;
 };
 
 export type IPoItemRfid = {

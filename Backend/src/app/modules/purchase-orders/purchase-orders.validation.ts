@@ -35,6 +35,17 @@ const poItemZodSchema = z.object({
     })
     .min(1, 'Unit must not be empty')
     .max(16, 'Unit must not exceed 16 characters'),
+  unit_price: z
+    .number()
+    .positive('Unit price must be positive')
+    .optional()
+    .nullable(),
+  tax_percent: z
+    .number()
+    .min(0, 'Tax percent must be non-negative')
+    .max(100, 'Tax percent must not exceed 100')
+    .optional()
+    .nullable(),
   rfid_tags: z.array(poItemRfidZodSchema).optional(),
 });
 
@@ -65,12 +76,22 @@ const createPurchaseOrderZodSchema = z.object({
       .optional()
       .nullable(),
     status: z
-      .enum(['pending', 'received'], {
+      .enum(['pending', 'approved', 'partially_received', 'received', 'closed', 'cancelled'], {
         errorMap: () => ({
-          message: 'Status must be either pending or received',
+          message: 'Status must be one of: pending, approved, partially_received, received, closed, cancelled',
         }),
       })
       .default('pending'),
+    currency: z
+      .string()
+      .min(1, 'Currency must not be empty')
+      .max(10, 'Currency must not exceed 10 characters')
+      .default('BDT'),
+    status_reason: z
+      .string()
+      .max(120, 'Status reason must not exceed 120 characters')
+      .optional()
+      .nullable(),
     items: z.array(poItemZodSchema).optional(),
   }),
 });
@@ -100,12 +121,22 @@ const updatePurchaseOrderZodSchema = z.object({
       .optional()
       .nullable(),
     status: z
-      .enum(['pending', 'received'], {
+      .enum(['pending', 'approved', 'partially_received', 'received', 'closed', 'cancelled'], {
         errorMap: () => ({
-          message: 'Status must be either pending or received',
+          message: 'Status must be one of: pending, approved, partially_received, received, closed, cancelled',
         }),
       })
       .optional(),
+    currency: z
+      .string()
+      .min(1, 'Currency must not be empty')
+      .max(10, 'Currency must not exceed 10 characters')
+      .optional(),
+    status_reason: z
+      .string()
+      .max(120, 'Status reason must not exceed 120 characters')
+      .optional()
+      .nullable(),
     items: z.array(poItemZodSchema).optional(),
   }),
 });
@@ -147,7 +178,7 @@ const getAllPurchaseOrdersZodSchema = z.object({
         message: 'Vendor ID must be a positive number',
       })
       .optional(),
-    status: z.enum(['pending', 'received']).optional(),
+    status: z.enum(['pending', 'approved', 'partially_received', 'received', 'closed', 'cancelled']).optional(),
     requisition_id: z
       .string()
       .refine(val => !isNaN(Number(val)) && Number(val) > 0, {

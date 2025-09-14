@@ -13,11 +13,13 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Edit, Trash2, Radio, RefreshCw, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { rfidApi, IRfidTag, RfidQueryParams } from '@/lib/api/rfid';
+import { rfidApi, IRfidTag, CreateRfidData, UpdateRfidData, RfidQueryParams } from '@/lib/api/rfid';
+import { locationsApi, ILocation } from '@/lib/api/locations';
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function RfidPage() {
   const [rfidTags, setRfidTags] = useState<IRfidTag[]>([]);
+  const [locations, setLocations] = useState<ILocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [createLoading, setCreateLoading] = useState(false);
   const [updateLoading, setUpdateLoading] = useState(false);
@@ -34,7 +36,9 @@ export default function RfidPage() {
   const [viewingRfidTag, setViewingRfidTag] = useState<IRfidTag | null>(null);
   const [formData, setFormData] = useState({
     tag_uid: '',
-    status: 'available' as 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged'
+    status: 'available' as 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged',
+    parent_tag_id: null as number | null,
+    current_location_id: null as number | null
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const { toast } = useToast();
@@ -43,6 +47,7 @@ export default function RfidPage() {
 
   useEffect(() => {
     fetchRfidTags();
+    fetchLocations();
   }, [currentPage, searchTerm, statusFilter]);
 
   const fetchRfidTags = async () => {
@@ -72,6 +77,20 @@ export default function RfidPage() {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchLocations = async () => {
+    try {
+      const response = await locationsApi.getAll({ limit: 1000 }); // Get all locations
+      setLocations(response.data);
+    } catch (error: any) {
+      console.error('Error fetching locations:', error);
+      toast({
+        title: "Error",
+        description: error.response?.data?.message || "Failed to fetch locations",
+        variant: "destructive"
+      });
     }
   };
 
@@ -169,7 +188,9 @@ export default function RfidPage() {
     setEditingRfidTag(rfidTag);
     setFormData({
       tag_uid: rfidTag.tag_uid,
-      status: rfidTag.status
+      status: rfidTag.status,
+      parent_tag_id: rfidTag.parent_tag_id || null,
+      current_location_id: rfidTag.current_location_id || null
     });
     setIsEditDialogOpen(true);
   };
@@ -177,7 +198,9 @@ export default function RfidPage() {
   const resetForm = () => {
     setFormData({
       tag_uid: '',
-      status: 'available'
+      status: 'available',
+      parent_tag_id: null,
+      current_location_id: null
     });
     setFormErrors({});
     setEditingRfidTag(null);
@@ -334,6 +357,44 @@ export default function RfidPage() {
                           </SelectContent>
                         </Select>
                       </div>
+                      <div>
+                        <Label htmlFor="parent_tag_id">Parent Tag</Label>
+                        <Select 
+                          value={formData.parent_tag_id?.toString() || 'none'} 
+                          onValueChange={(value) => setFormData(prev => ({ ...prev, parent_tag_id: value === 'none' ? null : parseInt(value) }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select parent tag (optional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No parent tag</SelectItem>
+                            {rfidTags.map((tag) => (
+                              <SelectItem key={tag.id} value={tag.id?.toString() || '0'}>
+                                {tag.tag_uid} - {tag.status}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label htmlFor="current_location_id">Current Location</Label>
+                        <Select 
+                          value={formData.current_location_id?.toString() || 'none'} 
+                          onValueChange={(value) => setFormData(prev => ({ ...prev, current_location_id: value === 'none' ? null : parseInt(value) }))}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select location (optional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No location</SelectItem>
+                            {locations.map((location) => (
+                              <SelectItem key={location.id} value={location.id?.toString() || '0'}>
+                                {location.name || `${location.sub_inventory_code}-${location.locator_code}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
                     <DialogFooter>
                       <Button  onClick={() => setIsCreateDialogOpen(false)}>
@@ -384,6 +445,8 @@ export default function RfidPage() {
                     <TableRow>
                       <TableHead>Tag UID</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Parent Tag</TableHead>
+                      <TableHead>Location</TableHead>
                       <TableHead>Created</TableHead>
                       <TableHead>Updated</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
@@ -399,6 +462,26 @@ export default function RfidPage() {
                           >
                             {rfidTag.status}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {rfidTag.parent_tag_id ? (
+                            <span className="text-sm font-mono">
+                              {rfidTags.find(tag => tag.id === rfidTag.parent_tag_id)?.tag_uid || 
+                               `#${rfidTag.parent_tag_id}`}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {rfidTag.current_location_id ? (
+                            <span className="text-sm">
+                              {locations.find(loc => loc.id === rfidTag.current_location_id)?.name || 
+                               `ID: ${rfidTag.current_location_id}`}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )}
                         </TableCell>
                         <TableCell>{formatDate(rfidTag.created_at!)}</TableCell>
                         <TableCell>{formatDate(rfidTag.updated_at!)}</TableCell>
@@ -517,6 +600,44 @@ export default function RfidPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <Label htmlFor="edit-parent_tag_id">Parent Tag</Label>
+                <Select 
+                  value={formData.parent_tag_id?.toString() || 'none'} 
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, parent_tag_id: value === 'none' ? null : parseInt(value) }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select parent tag (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No parent tag</SelectItem>
+                    {rfidTags.map((tag) => (
+                      <SelectItem key={tag.id} value={tag.id?.toString() || '0'}>
+                        {tag.tag_uid} - {tag.status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="edit-current_location_id">Current Location</Label>
+                <Select 
+                  value={formData.current_location_id?.toString() || 'none'} 
+                  onValueChange={(value) => setFormData(prev => ({ ...prev, current_location_id: value === 'none' ? null : parseInt(value) }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select location (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No location</SelectItem>
+                    {locations.map((location) => (
+                      <SelectItem key={location.id} value={location.id?.toString() || '0'}>
+                        {location.name || `${location.sub_inventory_code}-${location.locator_code}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <DialogFooter>
               <Button  onClick={() => setIsEditDialogOpen(false)}>
@@ -574,6 +695,24 @@ export default function RfidPage() {
                     {formatDate(viewingRfidTag.updated_at!)}
                   </p>
                 </div>
+                {viewingRfidTag.parent_tag_id && (
+                  <div>
+                    <Label className="text-sm font-medium text-gray-500">Parent Tag</Label>
+                    <p className="text-sm bg-gray-50 p-2 rounded border">
+                      {rfidTags.find(tag => tag.id === viewingRfidTag.parent_tag_id)?.tag_uid || 
+                       `Tag ID: ${viewingRfidTag.parent_tag_id}`}
+                    </p>
+                  </div>
+                )}
+                {viewingRfidTag.current_location_id && (
+                  <div>
+                    <Label className="text-sm font-medium text-gray-500">Current Location</Label>
+                    <p className="text-sm bg-gray-50 p-2 rounded border">
+                      {locations.find(loc => loc.id === viewingRfidTag.current_location_id)?.name || 
+                       `Location ID: ${viewingRfidTag.current_location_id}`}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             <DialogFooter>
