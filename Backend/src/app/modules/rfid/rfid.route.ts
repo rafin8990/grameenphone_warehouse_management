@@ -16,6 +16,18 @@ router.post(
   RfidController.checkRfidTags
 );
 
+router.post(
+  '/bulk',
+  validateRequest(RfidValidation.createBulkRfidTagsZodSchema),
+  RfidController.createBulkRfidTags
+);
+
+router.get(
+  '/check-duplicate/:epc',
+  validateRequest(RfidValidation.checkDuplicateEpcZodSchema),
+  RfidController.checkDuplicateEpc
+);
+
 router.get(
   '/',
   validateRequest(RfidValidation.getAllRfidTagsZodSchema),
@@ -48,6 +60,31 @@ router.post(
 router.post(
   '/:id/unassign',
   RfidController.unassignRfidTag
+);
+
+// UHF-specific routes to match Java API endpoints
+router.post(
+  '/uhf/tags',
+  validateRequest(RfidValidation.sendUHFTagZodSchema),
+  RfidController.sendUHFTag
+);
+
+router.post(
+  '/uhf/tags/batch',
+  validateRequest(RfidValidation.sendUHFTagsBatchZodSchema),
+  RfidController.sendUHFTagsBatch
+);
+
+router.get(
+  '/uhf/tags',
+  validateRequest(RfidValidation.getUHFTagsZodSchema),
+  RfidController.getUHFTags
+);
+
+router.delete(
+  '/uhf/tags/:epc',
+  validateRequest(RfidValidation.deleteUHFTagZodSchema),
+  RfidController.deleteUHFTag
 );
 
 export const RfidRoutes = router;

@@ -5,7 +5,7 @@ import { paginationHelpers } from '../../../helpers/paginationHelper';
 import catchAsync from '../../../shared/catchAsync';
 import pick from '../../../shared/pick';
 import sendResponse from '../../../shared/sendResponse';
-import { IRfidTag } from './rfid.interface';
+import { IRfidTag, IUHFTagRequest, IUHFTagsBatchRequest, IUHFResponse } from './rfid.interface';
 import { RfidService } from './rfid.service';
 
 // Create RFID Tag
@@ -36,7 +36,7 @@ const createRfidTag = catchAsync(async (req: Request, res: Response) => {
 
 // Get All RFID Tags
 const getAllRfidTags = catchAsync(async (req: Request, res: Response) => {
-  const rawFilters = pick(req.query, ['searchTerm', 'tag_uid', 'status']);
+  const rawFilters = pick(req.query, ['searchTerm', 'epc', 'status']);
   const paginationOptions = pick(req.query, paginationFields);
 
   const result = await RfidService.getAllRfidTags(
@@ -174,8 +174,112 @@ const unassignRfidTag = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// Create Bulk RFID Tags
+const createBulkRfidTags = catchAsync(async (req: Request, res: Response) => {
+  const dataArray = req.body;
+  
+  if (!Array.isArray(dataArray)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Request body must be an array of RFID tag data',
+    });
+  }
+
+  const result = await RfidService.createBulkRfidTags(dataArray);
+  
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: `Bulk RFID tags processed. Created: ${result.created.length}, Duplicates: ${result.duplicates.length}, Errors: ${result.errors.length}`,
+    data: {
+      created: result.created,
+      duplicates: result.duplicates,
+      errors: result.errors,
+      summary: {
+        total: dataArray.length,
+        created: result.created.length,
+        duplicates: result.duplicates.length,
+        errors: result.errors.length
+      }
+    },
+  });
+});
+
+// Check if EPC is duplicate
+const checkDuplicateEpc = catchAsync(async (req: Request, res: Response) => {
+  const { epc } = req.params;
+  
+  const isDuplicate = await RfidService.checkDuplicateEpc(epc);
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: isDuplicate ? 'EPC already exists' : 'EPC is available',
+    data: {
+      epc,
+      isDuplicate,
+      available: !isDuplicate
+    },
+  });
+});
+
+// UHF-specific controller methods to match Java code
+const sendUHFTag = catchAsync(async (req: Request, res: Response) => {
+  const tagRequest: IUHFTagRequest = req.body;
+  
+  const result = await RfidService.sendUHFTag(tagRequest);
+  
+  res.status(result.code).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+    code: result.code
+  });
+});
+
+const sendUHFTagsBatch = catchAsync(async (req: Request, res: Response) => {
+  const batchRequest: IUHFTagsBatchRequest = req.body;
+  
+  const result = await RfidService.sendUHFTagsBatch(batchRequest);
+  
+  res.status(result.code).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+    code: result.code
+  });
+});
+
+const getUHFTags = catchAsync(async (req: Request, res: Response) => {
+  const { page = 1, limit = 10 } = req.query;
+  
+  const result = await RfidService.getUHFTags(Number(page), Number(limit));
+  
+  res.status(result.code).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+    code: result.code
+  });
+});
+
+const deleteUHFTag = catchAsync(async (req: Request, res: Response) => {
+  const { epc } = req.params;
+  
+  const result = await RfidService.deleteUHFTag(epc);
+  
+  res.status(result.code).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+    code: result.code
+  });
+});
+
 export const RfidController = {
   createRfidTag,
+  createBulkRfidTags,
+  checkDuplicateEpc,
   getAllRfidTags,
   getSingleRfidTag,
   updateRfidTag,
@@ -183,4 +287,9 @@ export const RfidController = {
   checkRfidTags,
   assignRfidTag,
   unassignRfidTag,
+  // UHF-specific methods
+  sendUHFTag,
+  sendUHFTagsBatch,
+  getUHFTags,
+  deleteUHFTag,
 };

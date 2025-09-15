@@ -4,30 +4,47 @@ import { paginationHelpers } from '../../../helpers/paginationHelper';
 import { IGenericResponse } from '../../../interfaces/common';
 import { IPaginationOptions } from '../../../interfaces/pagination';
 import pool from '../../../utils/dbClient';
-import { IRfidTag } from './rfid.interface';
+import { IRfidTag, IUHFTagRequest, IUHFTagsBatchRequest, IUHFResponse, IUHFTag } from './rfid.interface';
 
 const createRfidTag = async (data: IRfidTag): Promise<IRfidTag | null> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
+    // First check if RFID tag already exists
+    const checkQuery = `SELECT id, epc, status FROM rfid_tags WHERE epc = $1;`;
+    const existingTag = await client.query(checkQuery, [data.epc]);
+
+    if (existingTag.rows.length > 0) {
+      await client.query('ROLLBACK');
+      throw new ApiError(
+        httpStatus.CONFLICT, 
+        `RFID tag with EPC '${data.epc}' already exists with status '${existingTag.rows[0].status}'`
+      );
+    }
+
     const insertQuery = `
-      INSERT INTO rfid_tags (tag_uid, status, parent_tag_id, current_location_id)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (tag_uid) DO NOTHING
+      INSERT INTO rfid_tags (epc, timestamp, location, reader_id, status, rssi, count, device_id, session_id, parent_tag)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *;
     `;
 
     const values = [
-      data.tag_uid,
-      data.status ?? 'available',
-      data.parent_tag_id || null,
-      data.current_location_id || null,
+      data.epc,
+      data.timestamp || new Date(),
+      data.location || null,
+      data.reader_id || null,
+      data.status ?? 'Available',
+      data.rssi || null,
+      data.count || 1,
+      data.device_id || null,
+      data.session_id || null,
+      data.parent_tag || null,
     ];
 
     const result = await client.query(insertQuery, values);
     await client.query('COMMIT');
-    return result.rows[0] || null;
+    return result.rows[0];
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -54,7 +71,7 @@ const getAllRfidTags = async (
   let paramIndex = 1;
 
   if (searchTerm) {
-    conditions.push(`(rt.tag_uid ILIKE $${paramIndex})`);
+    conditions.push(`(rt.epc ILIKE $${paramIndex})`);
     values.push(`%${searchTerm}%`);
     paramIndex++;
   }
@@ -134,9 +151,24 @@ const updateRfidTag = async (id: number, data: Partial<IRfidTag>): Promise<IRfid
     const values: any[] = [];
     let paramIndex = 1;
 
-    if (data.tag_uid !== undefined) {
-      updateFields.push(`tag_uid = $${paramIndex++}`);
-      values.push(data.tag_uid);
+    if (data.epc !== undefined) {
+      updateFields.push(`epc = $${paramIndex++}`);
+      values.push(data.epc);
+    }
+
+    if (data.timestamp !== undefined) {
+      updateFields.push(`timestamp = $${paramIndex++}`);
+      values.push(data.timestamp);
+    }
+
+    if (data.location !== undefined) {
+      updateFields.push(`location = $${paramIndex++}`);
+      values.push(data.location);
+    }
+
+    if (data.reader_id !== undefined) {
+      updateFields.push(`reader_id = $${paramIndex++}`);
+      values.push(data.reader_id);
     }
 
     if (data.status !== undefined) {
@@ -144,14 +176,29 @@ const updateRfidTag = async (id: number, data: Partial<IRfidTag>): Promise<IRfid
       values.push(data.status);
     }
 
-    if (data.parent_tag_id !== undefined) {
-      updateFields.push(`parent_tag_id = $${paramIndex++}`);
-      values.push(data.parent_tag_id);
+    if (data.rssi !== undefined) {
+      updateFields.push(`rssi = $${paramIndex++}`);
+      values.push(data.rssi);
     }
 
-    if (data.current_location_id !== undefined) {
-      updateFields.push(`current_location_id = $${paramIndex++}`);
-      values.push(data.current_location_id);
+    if (data.count !== undefined) {
+      updateFields.push(`count = $${paramIndex++}`);
+      values.push(data.count);
+    }
+
+    if (data.device_id !== undefined) {
+      updateFields.push(`device_id = $${paramIndex++}`);
+      values.push(data.device_id);
+    }
+
+    if (data.session_id !== undefined) {
+      updateFields.push(`session_id = $${paramIndex++}`);
+      values.push(data.session_id);
+    }
+
+    if (data.parent_tag !== undefined) {
+      updateFields.push(`parent_tag = $${paramIndex++}`);
+      values.push(data.parent_tag);
     }
 
     updateFields.push(`updated_at = NOW()`);
@@ -263,7 +310,7 @@ const checkRfidTags = async (data: any): Promise<{
 
       try {
         const existingTag = await pool.query(
-          'SELECT * FROM rfid_tags WHERE tag_uid = $1',
+          'SELECT * FROM rfid_tags WHERE epc = $1',
           [tagUidToCheck]
         );
 
@@ -295,7 +342,7 @@ const assignRfidTag = async (id: number): Promise<IRfidTag | null> => {
     await client.query('BEGIN');
 
     // Check if RFID tag exists and is available
-    const checkQuery = `SELECT * FROM rfid_tags WHERE id = $1 AND status = 'available';`;
+    const checkQuery = `SELECT * FROM rfid_tags WHERE id = $1 AND status = 'Available';`;
     const checkResult = await client.query(checkQuery, [id]);
 
     if (checkResult.rows.length === 0) {
@@ -305,7 +352,7 @@ const assignRfidTag = async (id: number): Promise<IRfidTag | null> => {
     // Update RFID tag status to assigned
     const updateQuery = `
       UPDATE rfid_tags 
-      SET status = 'assigned', updated_at = NOW()
+      SET status = 'Assigned', updated_at = NOW()
       WHERE id = $1
       RETURNING *;
     `;
@@ -329,7 +376,7 @@ const unassignRfidTag = async (id: number): Promise<IRfidTag | null> => {
     await client.query('BEGIN');
 
     // Check if RFID tag exists and is assigned
-    const checkQuery = `SELECT * FROM rfid_tags WHERE id = $1 AND status = 'assigned';`;
+    const checkQuery = `SELECT * FROM rfid_tags WHERE id = $1 AND status = 'Assigned';`;
     const checkResult = await client.query(checkQuery, [id]);
 
     if (checkResult.rows.length === 0) {
@@ -339,7 +386,7 @@ const unassignRfidTag = async (id: number): Promise<IRfidTag | null> => {
     // Update RFID tag status to available
     const updateQuery = `
       UPDATE rfid_tags 
-      SET status = 'available', updated_at = NOW()
+      SET status = 'Available', updated_at = NOW()
       WHERE id = $1
       RETURNING *;
     `;
@@ -356,8 +403,292 @@ const unassignRfidTag = async (id: number): Promise<IRfidTag | null> => {
   }
 };
 
+// Bulk create RFID tags with duplicate checking
+const createBulkRfidTags = async (dataArray: IRfidTag[]): Promise<{
+  created: IRfidTag[];
+  duplicates: string[];
+  errors: any[];
+}> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const created: IRfidTag[] = [];
+    const duplicates: string[] = [];
+    const errors: any[] = [];
+
+    for (let i = 0; i < dataArray.length; i++) {
+      const data = dataArray[i];
+      try {
+        // Check if RFID tag already exists
+        const checkQuery = `SELECT id, epc, status FROM rfid_tags WHERE epc = $1;`;
+        const existingTag = await client.query(checkQuery, [data.epc]);
+
+        if (existingTag.rows.length > 0) {
+          duplicates.push(data.epc);
+          continue;
+        }
+
+        const insertQuery = `
+          INSERT INTO rfid_tags (epc, timestamp, location, reader_id, status)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING *;
+        `;
+
+        const values = [
+          data.epc,
+          data.timestamp || new Date(),
+          data.location || null,
+          data.reader_id || null,
+          data.status ?? 'Available',
+        ];
+
+        const result = await client.query(insertQuery, values);
+        created.push(result.rows[0]);
+      } catch (error) {
+        errors.push({
+          index: i,
+          epc: data.epc,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    await client.query('COMMIT');
+    return { created, duplicates, errors };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Check for duplicate EPCs before creating
+const checkDuplicateEpc = async (epc: string): Promise<boolean> => {
+  const query = `SELECT id FROM rfid_tags WHERE epc = $1;`;
+  const result = await pool.query(query, [epc]);
+  return result.rows.length > 0;
+};
+
+// UHF-specific service methods to match Java code
+const sendUHFTag = async (tagRequest: IUHFTagRequest): Promise<IUHFResponse> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Check if RFID tag already exists
+    const checkQuery = `SELECT id, epc, status FROM rfid_tags WHERE epc = $1;`;
+    const existingTag = await client.query(checkQuery, [tagRequest.epc]);
+
+    if (existingTag.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return {
+        success: false,
+        message: `RFID tag with EPC '${tagRequest.epc}' already exists with status '${existingTag.rows[0].status}'`,
+        code: 409
+      };
+    }
+
+    const insertQuery = `
+      INSERT INTO rfid_tags (epc, rssi, count, timestamp, device_id, status)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *;
+    `;
+
+    const values = [
+      tagRequest.epc,
+      tagRequest.rssi,
+      tagRequest.count,
+      new Date(tagRequest.timestamp),
+      tagRequest.deviceId,
+      'Available'
+    ];
+
+    const result = await client.query(insertQuery, values);
+    await client.query('COMMIT');
+
+    return {
+      success: true,
+      message: `UHF tag with EPC '${tagRequest.epc}' created successfully`,
+      data: JSON.stringify(result.rows[0]),
+      code: 201
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+      code: 500
+    };
+  } finally {
+    client.release();
+  }
+};
+
+const sendUHFTagsBatch = async (batchRequest: IUHFTagsBatchRequest): Promise<IUHFResponse> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const created: IUHFTag[] = [];
+    const duplicates: string[] = [];
+    const errors: any[] = [];
+
+    for (let i = 0; i < batchRequest.tags.length; i++) {
+      const tag = batchRequest.tags[i];
+      try {
+        // Check if RFID tag already exists
+        const checkQuery = `SELECT id, epc, status FROM rfid_tags WHERE epc = $1;`;
+        const existingTag = await client.query(checkQuery, [tag.epc]);
+
+        if (existingTag.rows.length > 0) {
+          duplicates.push(tag.epc);
+          continue;
+        }
+
+        const insertQuery = `
+          INSERT INTO rfid_tags (epc, rssi, count, timestamp, device_id, session_id, status)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+          RETURNING *;
+        `;
+
+        const values = [
+          tag.epc,
+          tag.rssi,
+          tag.count,
+          new Date(tag.timestamp),
+          tag.deviceId,
+          batchRequest.sessionId,
+          'Available'
+        ];
+
+        const result = await client.query(insertQuery, values);
+        created.push(result.rows[0]);
+      } catch (error) {
+        errors.push({
+          index: i,
+          epc: tag.epc,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    await client.query('COMMIT');
+
+    const message = `Batch processed: ${created.length} created, ${duplicates.length} duplicates, ${errors.length} errors`;
+    
+    return {
+      success: true,
+      message,
+      data: JSON.stringify({
+        created,
+        duplicates,
+        errors,
+        summary: {
+          total: batchRequest.tags.length,
+          created: created.length,
+          duplicates: duplicates.length,
+          errors: errors.length
+        }
+      }),
+      code: 201
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+      code: 500
+    };
+  } finally {
+    client.release();
+  }
+};
+
+const getUHFTags = async (page: number = 1, limit: number = 10): Promise<IUHFResponse> => {
+  try {
+    const offset = (page - 1) * limit;
+    
+    const query = `
+      SELECT * FROM rfid_tags 
+      ORDER BY created_at DESC 
+      LIMIT $1 OFFSET $2;
+    `;
+    
+    const result = await pool.query(query, [limit, offset]);
+    
+    const countQuery = `SELECT COUNT(*) FROM rfid_tags;`;
+    const countResult = await pool.query(countQuery);
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    return {
+      success: true,
+      message: `Retrieved ${result.rows.length} UHF tags`,
+      data: JSON.stringify({
+        tags: result.rows,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit)
+        }
+      }),
+      code: 200
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+      code: 500
+    };
+  }
+};
+
+const deleteUHFTag = async (epc: string): Promise<IUHFResponse> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Check if RFID tag exists
+    const checkQuery = `SELECT id FROM rfid_tags WHERE epc = $1;`;
+    const checkResult = await client.query(checkQuery, [epc]);
+
+    if (checkResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return {
+        success: false,
+        message: `RFID tag with EPC '${epc}' not found`,
+        code: 404
+      };
+    }
+
+    const deleteQuery = `DELETE FROM rfid_tags WHERE epc = $1;`;
+    await client.query(deleteQuery, [epc]);
+
+    await client.query('COMMIT');
+
+    return {
+      success: true,
+      message: `UHF tag with EPC '${epc}' deleted successfully`,
+      code: 200
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error occurred',
+      code: 500
+    };
+  } finally {
+    client.release();
+  }
+};
+
 export const RfidService = {
   createRfidTag,
+  createBulkRfidTags,
+  checkDuplicateEpc,
   getAllRfidTags,
   getSingleRfidTag,
   updateRfidTag,
@@ -365,4 +696,9 @@ export const RfidService = {
   checkRfidTags,
   assignRfidTag,
   unassignRfidTag,
+  // UHF-specific methods
+  sendUHFTag,
+  sendUHFTagsBatch,
+  getUHFTags,
+  deleteUHFTag,
 };

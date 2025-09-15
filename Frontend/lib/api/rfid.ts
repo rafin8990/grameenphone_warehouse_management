@@ -20,20 +20,24 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
 
 export interface IRfidTag {
   id?: number;
-  tag_uid: string;
-  status: 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged';
-  parent_tag_id?: number | null;
-  current_location_id?: number | null;
+  epc: string;
+  timestamp?: Date;
+  location?: string | null;
+  reader_id?: string | null;
+  status: 'Available' | 'Reserved' | 'Assigned' | 'Consumed' | 'Lost' | 'Damaged';
+  rssi?: string | null;
+  count?: number | null;
+  device_id?: string | null;
+  session_id?: string | null;
+  parent_tag?: number | null;
   created_at?: Date;
   updated_at?: Date;
 }
 
 export interface RfidQueryParams {
   searchTerm?: string;
-  tag_uid?: string;
-  status?: 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged';
-  parent_tag_id?: number;
-  current_location_id?: number;
+  epc?: string;
+  status?: 'Available' | 'Reserved' | 'Assigned' | 'Consumed' | 'Lost' | 'Damaged';
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -51,17 +55,29 @@ export interface RfidResponse {
 }
 
 export interface CreateRfidData {
-  tag_uid: string;
-  status: 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged';
-  parent_tag_id?: number | null;
-  current_location_id?: number | null;
+  epc: string;
+  timestamp?: Date;
+  location?: string | null;
+  reader_id?: string | null;
+  status: 'Available' | 'Reserved' | 'Assigned' | 'Consumed' | 'Lost' | 'Damaged';
+  rssi?: string | null;
+  count?: number | null;
+  device_id?: string | null;
+  session_id?: string | null;
+  parent_tag?: number | null;
 }
 
 export interface UpdateRfidData {
-  tag_uid?: string;
-  status?: 'available' | 'reserved' | 'assigned' | 'consumed' | 'lost' | 'damaged';
-  parent_tag_id?: number | null;
-  current_location_id?: number | null;
+  epc?: string;
+  timestamp?: Date;
+  location?: string | null;
+  reader_id?: string | null;
+  status?: 'Available' | 'Reserved' | 'Assigned' | 'Consumed' | 'Lost' | 'Damaged';
+  rssi?: string | null;
+  count?: number | null;
+  device_id?: string | null;
+  session_id?: string | null;
+  parent_tag?: number | null;
 }
 
 export const rfidApi = {
@@ -167,6 +183,45 @@ export const rfidApi = {
       return response.data;
     } catch (error) {
       console.error('Error unassigning RFID tag:', error);
+      throw error;
+    }
+  },
+
+  // Create multiple RFID tags with duplicate checking
+  createBulk: async (dataArray: CreateRfidData[]): Promise<{
+    created: IRfidTag[];
+    duplicates: string[];
+    errors: any[];
+    summary: {
+      total: number;
+      created: number;
+      duplicates: number;
+      errors: number;
+    };
+  }> => {
+    try {
+      const response = await apiRequest('/api/v1/rfid/bulk', {
+        method: 'POST',
+        body: JSON.stringify(dataArray),
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error creating bulk RFID tags:', error);
+      throw error;
+    }
+  },
+
+  // Check if EPC is duplicate
+  checkDuplicate: async (epc: string): Promise<{
+    epc: string;
+    isDuplicate: boolean;
+    available: boolean;
+  }> => {
+    try {
+      const response = await apiRequest(`/api/v1/rfid/check-duplicate/${encodeURIComponent(epc)}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error checking duplicate EPC:', error);
       throw error;
     }
   }
