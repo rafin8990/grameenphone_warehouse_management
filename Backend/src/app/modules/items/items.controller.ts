@@ -22,37 +22,20 @@ const createItem = catchAsync(async (req: Request, res: Response) => {
 
 // Get All Items
 const getAllItems = catchAsync(async (req: Request, res: Response) => {
-  const rawFilters = pick(req.query, [
+  const filters = pick(req.query, [
     'searchTerm',
-    'item_code',
+    'item_number',
     'item_description',
-    'org_code',
-    'category_id',
+    'item_type',
+    'inventory_organization',
+    'primary_uom',
+    'uom_code',
     'item_status',
-    'capex_opex',
-    'tracking_method',
-    'brand',
-    'model',
-    'manufacturer',
-    'hsn_code',
-    'barcode_upc',
-    'barcode_ean',
-    'gs1_gtin',
-    'rfid_supported',
-    'default_location_id',
-    'min_qty_min',
-    'min_qty_max',
-    'max_qty_min',
-    'max_qty_max',
-    'unit_weight_min',
-    'unit_weight_max',
   ]);
+  
   const paginationOptions = pick(req.query, paginationFields);
 
-  const result = await ItemService.getAllItems(
-    rawFilters,
-    paginationOptions
-  );
+  const result = await ItemService.getAllItems(filters, paginationOptions);
 
   const paginationMeta = result.meta
     ? {

@@ -1,32 +1,55 @@
 import httpStatus from 'http-status';
+import crypto from 'crypto';
 import ApiError from '../../../errors/ApiError';
 import { paginationHelpers } from '../../../helpers/paginationHelper';
 import { IGenericResponse } from '../../../interfaces/common';
 import { IPaginationOptions } from '../../../interfaces/pagination';
 import pool from '../../../utils/dbClient';
-import { IItem, IItemFilters } from './items.interface';
+import { IPoHexCode, IPoHexCodeFilters } from './po-hex-codes.interface';
 
-const createItem = async (data: IItem): Promise<IItem | null> => {
+// Generate unique 16-character hex code
+const generateHexCode = async (): Promise<string> => {
+  let hexCode: string;
+  let isUnique = false;
+
+  while (!isUnique) {
+    // Generate 8 random bytes (16 hex characters)
+    hexCode = crypto.randomBytes(8).toString('hex').toUpperCase();
+
+    // Check if hex code already exists
+    const checkQuery = 'SELECT hex_code FROM po_hex_codes WHERE hex_code = $1';
+    const result = await pool.query(checkQuery, [hexCode]);
+
+    if (result.rows.length === 0) {
+      isUnique = true;
+    }
+  }
+
+  return hexCode!;
+};
+
+const createPoHexCode = async (data: IPoHexCode): Promise<IPoHexCode | null> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
+    // Generate unique hex code
+    const hexCode = await generateHexCode();
+
     const insertQuery = `
-      INSERT INTO items 
-        (item_number, item_description, item_type, inventory_organization, 
-         primary_uom, uom_code, item_status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO po_hex_codes 
+        (po_number, lot_no, item_number, quantity, uom, hex_code)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *;
     `;
 
     const values = [
+      data.po_number,
+      data.lot_no,
       data.item_number,
-      data.item_description ?? null,
-      data.item_type ?? null,
-      data.inventory_organization ?? null,
-      data.primary_uom ?? null,
-      data.uom_code,
-      data.item_status ?? 'active',
+      data.quantity,
+      data.uom,
+      hexCode,
     ];
 
     const result = await client.query(insertQuery, values);
@@ -35,25 +58,28 @@ const createItem = async (data: IItem): Promise<IItem | null> => {
     return result.rows[0];
   } catch (error: any) {
     await client.query('ROLLBACK');
-    
-    // Handle duplicate item number error
+
+    if (error instanceof ApiError) throw error;
+
+    // Handle duplicate hex code error (very rare)
     if (error.code === '23505') {
-      throw new ApiError(httpStatus.CONFLICT, 'Item number already exists');
+      // Retry once
+      return await createPoHexCode(data);
     }
-    
+
     throw new ApiError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      'Failed to create item'
+      'Failed to create PO hex code'
     );
   } finally {
     client.release();
   }
 };
 
-const getAllItems = async (
-  filters: IItemFilters,
+const getAllPoHexCodes = async (
+  filters: IPoHexCodeFilters,
   paginationOptions: IPaginationOptions
-): Promise<IGenericResponse<IItem[]>> => {
+): Promise<IGenericResponse<IPoHexCode[]>> => {
   const { searchTerm, ...filterFields } = filters;
 
   const {
@@ -71,7 +97,7 @@ const getAllItems = async (
   // Search term - searches across multiple fields
   if (searchTerm) {
     conditions.push(
-      `(item_number ILIKE $${paramIndex} OR item_description ILIKE $${paramIndex} OR item_type ILIKE $${paramIndex} OR inventory_organization ILIKE $${paramIndex})`
+      `(po_number ILIKE $${paramIndex} OR lot_no ILIKE $${paramIndex} OR item_number ILIKE $${paramIndex} OR hex_code ILIKE $${paramIndex})`
     );
     values.push(`%${searchTerm}%`);
     paramIndex++;
@@ -92,13 +118,12 @@ const getAllItems = async (
   // Validate sortBy to prevent SQL injection
   const allowedSortFields = [
     'id',
+    'po_number',
+    'lot_no',
     'item_number',
-    'item_description',
-    'item_type',
-    'inventory_organization',
-    'primary_uom',
-    'uom_code',
-    'item_status',
+    'quantity',
+    'uom',
+    'hex_code',
     'created_at',
     'updated_at',
   ];
@@ -109,16 +134,15 @@ const getAllItems = async (
   const query = `
     SELECT 
       id,
+      po_number,
+      lot_no,
       item_number,
-      item_description,
-      item_type,
-      inventory_organization,
-      primary_uom,
-      uom_code,
-      item_status,
+      quantity,
+      uom,
+      hex_code,
       created_at,
       updated_at
-    FROM items
+    FROM po_hex_codes
     ${whereClause}
     ORDER BY ${safeSortBy} ${safeSortOrder}
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
@@ -129,7 +153,7 @@ const getAllItems = async (
   const result = await pool.query(query, values);
 
   // Get total count
-  const countQuery = `SELECT COUNT(*) FROM items ${whereClause};`;
+  const countQuery = `SELECT COUNT(*) FROM po_hex_codes ${whereClause};`;
   const countResult = await pool.query(
     countQuery,
     values.slice(0, paramIndex - 1)
@@ -149,38 +173,40 @@ const getAllItems = async (
   };
 };
 
-const getSingleItem = async (id: number): Promise<IItem | null> => {
+const getSinglePoHexCode = async (id: number): Promise<IPoHexCode | null> => {
   const query = `
     SELECT 
       id,
+      po_number,
+      lot_no,
       item_number,
-      item_description,
-      item_type,
-      inventory_organization,
-      primary_uom,
-      uom_code,
-      item_status,
+      quantity,
+      uom,
+      hex_code,
       created_at,
       updated_at
-    FROM items
+    FROM po_hex_codes
     WHERE id = $1;
   `;
 
   const result = await pool.query(query, [id]);
 
   if (result.rows.length === 0) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Item not found');
+    throw new ApiError(httpStatus.NOT_FOUND, 'PO hex code not found');
   }
 
   return result.rows[0];
 };
 
-const updateItem = async (
+const updatePoHexCode = async (
   id: number,
-  data: Partial<IItem>
-): Promise<IItem | null> => {
+  data: Partial<IPoHexCode>
+): Promise<IPoHexCode | null> => {
   try {
-    const fields = Object.keys(data);
+    // Remove hex_code from update data if present (cannot be updated)
+    const { hex_code, ...updateData } = data;
+
+    const fields = Object.keys(updateData);
     if (fields.length === 0) {
       throw new ApiError(httpStatus.BAD_REQUEST, 'No data provided for update');
     }
@@ -189,11 +215,11 @@ const updateItem = async (
       .map((field, index) => `${field} = $${index + 1}`)
       .join(', ');
 
-    const values = fields.map(field => (data as any)[field]);
+    const values = fields.map(field => (updateData as any)[field]);
     values.push(id);
 
     const query = `
-      UPDATE items
+      UPDATE po_hex_codes
       SET ${setClause}, updated_at = CURRENT_TIMESTAMP
       WHERE id = $${fields.length + 1}
       RETURNING *;
@@ -202,42 +228,37 @@ const updateItem = async (
     const result = await pool.query(query, values);
 
     if (result.rows.length === 0) {
-      throw new ApiError(httpStatus.NOT_FOUND, 'Item not found');
+      throw new ApiError(httpStatus.NOT_FOUND, 'PO hex code not found');
     }
 
     return result.rows[0];
   } catch (error: any) {
     if (error instanceof ApiError) throw error;
-
-    // Handle duplicate item number error
-    if (error.code === '23505') {
-      throw new ApiError(httpStatus.CONFLICT, 'Item number already exists');
-    }
-
-    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to update item');
+    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to update PO hex code');
   }
 };
 
-const deleteItem = async (id: number): Promise<void> => {
+const deletePoHexCode = async (id: number): Promise<void> => {
   try {
     const result = await pool.query(
-      'DELETE FROM items WHERE id = $1 RETURNING *;',
+      'DELETE FROM po_hex_codes WHERE id = $1 RETURNING *;',
       [id]
     );
 
     if (result.rowCount === 0) {
-      throw new ApiError(httpStatus.NOT_FOUND, 'Item not found');
+      throw new ApiError(httpStatus.NOT_FOUND, 'PO hex code not found');
     }
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to delete item');
+    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to delete PO hex code');
   }
 };
 
-export const ItemService = {
-  createItem,
-  getAllItems,
-  getSingleItem,
-  updateItem,
-  deleteItem,
+export const PoHexCodeService = {
+  createPoHexCode,
+  getAllPoHexCodes,
+  getSinglePoHexCode,
+  updatePoHexCode,
+  deletePoHexCode,
 };
+

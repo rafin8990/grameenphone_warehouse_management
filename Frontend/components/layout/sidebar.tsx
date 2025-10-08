@@ -43,7 +43,8 @@ import {
   ShoppingBag,
   Hotel,
   MapPin,
-  Radio
+  Radio,
+  Hash
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
@@ -102,7 +103,8 @@ const iconMap: { [key: string]: any } = {
   ShoppingBag,
   Hotel,
   MapPin,
-  Radio
+  Radio,
+  Hash
 }
 
 export function Sidebar({ activePage }: { activePage?: string }) {

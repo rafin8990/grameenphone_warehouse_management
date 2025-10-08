@@ -5,15 +5,15 @@ import { IGenericResponse } from '../../../interfaces/common';
 import { IPaginationOptions } from '../../../interfaces/pagination';
 import pool from '../../../utils/dbClient';
 import {
-  ICreatePurchaseOrderComplete,
-  IPurchaseOrder,
-  IPurchaseOrderComplete,
-  IUpdatePurchaseOrder
+  ICreatePurchaseOrder,
+  IPurchaseOrderFilters,
+  IPurchaseOrderWithItems,
+  IUpdatePurchaseOrder,
 } from './purchase-orders.interface';
 
 const createPurchaseOrder = async (
-  data: ICreatePurchaseOrderComplete
-): Promise<IPurchaseOrderComplete | null> => {
+  data: ICreatePurchaseOrder
+): Promise<IPurchaseOrderWithItems | null> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -21,88 +21,121 @@ const createPurchaseOrder = async (
     // Insert purchase order
     const insertPoQuery = `
       INSERT INTO purchase_orders 
-        (po_number, vendor_id, total_amount, requisition_id, status, currency, status_reason)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+        (po_number, po_description, supplier_name, po_type)
+      VALUES ($1, $2, $3, $4)
       RETURNING *;
     `;
 
     const poValues = [
       data.po_number,
-      data.vendor_id,
-      data.total_amount ?? null,
-      data.requisition_id ?? null,
-      data.status ?? 'pending',
-      data.currency ?? 'BDT',
-      data.status_reason ?? null,
+      data.po_description ?? null,
+      data.supplier_name,
+      data.po_type ?? null,
     ];
 
     const poResult = await client.query(insertPoQuery, poValues);
     const purchaseOrder = poResult.rows[0];
     const poId = purchaseOrder.id;
 
+
+
     // Insert PO items if provided
-    if (data.items && data.items.length > 0) {
-      for (const item of data.items) {
+    if (data.po_items && data.po_items.length > 0) {
+      for (const item of data.po_items) {
+        
+        // Verify that item_number exists
+        const itemCheckQuery = `
+          SELECT item_number FROM items WHERE item_number = $1;
+        `;
+        const itemCheckResult = await client.query(itemCheckQuery, [
+          item.item_number,
+        ]);
+
+        if (itemCheckResult.rows.length === 0) {
+          throw new ApiError(
+            httpStatus.BAD_REQUEST,
+            `Item with number '${item.item_number}' not found`
+          );
+        }
+
         const insertItemQuery = `
           INSERT INTO po_items 
-            (po_id, item_id, quantity, unit, unit_price, tax_percent)
-          VALUES ($1, $2, $3, $4, $5, $6)
+            (po_id, item_number, quantity)
+          VALUES ($1, $2, $3)
           RETURNING *;
         `;
 
-        const itemValues = [
-          poId, 
-          item.item_id, 
-          item.quantity, 
-          item.unit,
-          item.unit_price ?? null,
-          item.tax_percent ?? null
-        ];
-        const itemResult = await client.query(insertItemQuery, itemValues);
-        const poItem = itemResult.rows[0];
-
-        // Insert RFID tags if provided
-        if (item.rfid_tags && item.rfid_tags.length > 0) {
-          for (const rfid of item.rfid_tags) {
-            const insertRfidQuery = `
-              INSERT INTO po_items_rfid 
-                (po_item_id, rfid_id, quantity)
-              VALUES ($1, $2, $3)
-              RETURNING *;
-            `;
-
-            const rfidValues = [poItem.id, rfid.rfid_id, rfid.quantity ?? 1];
-            await client.query(insertRfidQuery, rfidValues);
-
-            // Update RFID tag status to 'assigned' and set item_id
-            const updateRfidQuery = `
-              UPDATE rfid_tags 
-              SET status = 'assigned', updated_at = NOW()
-              WHERE id = $1;
-            `;
-            await client.query(updateRfidQuery, [rfid.rfid_id]);
-          }
-        }
+        const itemValues = [poId, item.item_number, item.quantity];
+        const insertResult = await client.query(insertItemQuery, itemValues);
       }
+    } else {
     }
 
     await client.query('COMMIT');
 
-    // Return the complete purchase order with items and RFID
-    return await getSinglePurchaseOrder(poId);
-  } catch (error) {
+    // Fetch all items with details for this PO
+    const itemsQuery = `
+      SELECT 
+        pi.id,
+        pi.po_id,
+        pi.item_number,
+        pi.quantity,
+        pi.created_at,
+        pi.updated_at,
+        i.id as item_id,
+        i.item_number as item_code,
+        i.item_description,
+        i.item_type,
+        i.inventory_organization,
+        i.primary_uom,
+        i.uom_code,
+        i.item_status
+      FROM po_items pi
+      INNER JOIN items i ON pi.item_number = i.item_number
+      WHERE pi.po_id = $1
+      ORDER BY pi.id;
+    `;
+
+    const itemsResult = await client.query(itemsQuery, [poId]);
+
+    // Return the complete purchase order with items
+    return {
+      ...purchaseOrder,
+      items: itemsResult.rows,
+    };
+  } catch (error: any) {
     await client.query('ROLLBACK');
-    throw error;
+
+    if (error instanceof ApiError) throw error;
+
+    // Handle foreign key constraint violation
+    if (error.code === '23503') {
+      throw new ApiError(
+        httpStatus.BAD_REQUEST,
+        'Referenced item does not exist'
+      );
+    }
+
+    // Handle duplicate PO number
+    if (error.code === '23505') {
+      throw new ApiError(httpStatus.CONFLICT, 'PO number already exists');
+    }
+
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Failed to create purchase order'
+    );
   } finally {
     client.release();
   }
 };
 
 const getAllPurchaseOrders = async (
-  filters: Partial<IPurchaseOrder> & { searchTerm?: string },
+  filters: IPurchaseOrderFilters,
   paginationOptions: IPaginationOptions
-): Promise<IGenericResponse<IPurchaseOrderComplete[]>> => {
+): Promise<IGenericResponse<IPurchaseOrderWithItems[]>> => {
   const { searchTerm, ...filterFields } = filters;
+
   const {
     page,
     limit,
@@ -115,12 +148,16 @@ const getAllPurchaseOrders = async (
   const values: any[] = [];
   let paramIndex = 1;
 
+  // Search term - searches across multiple fields
   if (searchTerm) {
-    conditions.push(`(po.po_number ILIKE $${paramIndex})`);
+    conditions.push(
+      `(po.po_number ILIKE $${paramIndex} OR po.supplier_name ILIKE $${paramIndex} OR po.po_description ILIKE $${paramIndex} OR po.po_type ILIKE $${paramIndex})`
+    );
     values.push(`%${searchTerm}%`);
     paramIndex++;
   }
 
+  // Specific field filters
   for (const [field, value] of Object.entries(filterFields)) {
     if (value !== undefined && value !== null) {
       conditions.push(`po.${field} = $${paramIndex}`);
@@ -129,67 +166,92 @@ const getAllPurchaseOrders = async (
     }
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  // Validate sortBy to prevent SQL injection
+  const allowedSortFields = [
+    'id',
+    'po_number',
+    'po_description',
+    'supplier_name',
+    'po_type',
+    'created_at',
+    'updated_at',
+  ];
+
+  const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
+  const safeSortOrder = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
   const query = `
     SELECT 
-      po.*,
-      v.name as vendor_name,
-      v.vendor_code as vendor_code
+      po.id,
+      po.po_number,
+      po.po_description,
+      po.supplier_name,
+      po.po_type,
+      po.created_at,
+      po.updated_at,
+      COUNT(pi.id)::int as items_count
     FROM purchase_orders po
-    LEFT JOIN vendors v ON po.vendor_id = v.id
+    LEFT JOIN po_items pi ON po.id = pi.po_id
     ${whereClause}
-    ORDER BY po.${sortBy} ${sortOrder}
-    LIMIT $${paramIndex++} OFFSET $${paramIndex};
+    GROUP BY po.id
+    ORDER BY po.${safeSortBy} ${safeSortOrder}
+    LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
   `;
 
   values.push(limit, skip);
 
   const result = await pool.query(query, values);
 
-  // Populate items and RFID for each purchase order
-  const purchaseOrdersWithItems: IPurchaseOrderComplete[] = [];
-  
+  // Populate items for each purchase order
+  const purchaseOrdersWithItems: IPurchaseOrderWithItems[] = [];
+
   for (const po of result.rows) {
-    // Get PO items
+    // Get PO items with item details
     const itemsQuery = `
       SELECT 
-        pi.*,
-        i.item_code,
+        pi.id,
+        pi.po_id,
+        pi.item_number,
+        pi.quantity,
+        pi.created_at,
+        pi.updated_at,
+        i.id as item_id,
+        i.item_number as item_code,
         i.item_description,
-        i.uom_primary
+        i.item_type,
+        i.inventory_organization,
+        i.primary_uom,
+        i.uom_code,
+        i.item_status
       FROM po_items pi
-      LEFT JOIN items i ON pi.item_id = i.id
-      WHERE pi.po_id = $1;
+      INNER JOIN items i ON pi.item_number = i.item_number
+      WHERE pi.po_id = $1
+      ORDER BY pi.id;
     `;
 
     const itemsResult = await pool.query(itemsQuery, [po.id]);
-    const items = itemsResult.rows;
-
-    // Get RFID tags for each item
-    for (const item of items) {
-      const rfidQuery = `
-        SELECT 
-          pir.*,
-          rt.tag_uid,
-          rt.status as rfid_status
-        FROM po_items_rfid pir
-        LEFT JOIN rfid_tags rt ON pir.rfid_id = rt.id
-        WHERE pir.po_item_id = $1;
-      `;
-
-      const rfidResult = await pool.query(rfidQuery, [item.id]);
-      item.rfid_tags = rfidResult.rows;
-    }
 
     purchaseOrdersWithItems.push({
-      ...po,
-      items,
+      id: po.id,
+      po_number: po.po_number,
+      po_description: po.po_description,
+      supplier_name: po.supplier_name,
+      po_type: po.po_type,
+      created_at: po.created_at,
+      updated_at: po.updated_at,
+      items: itemsResult.rows,
     });
   }
 
+  // Get total count
   const countQuery = `SELECT COUNT(*) FROM purchase_orders po ${whereClause};`;
-  const countResult = await pool.query(countQuery, values.slice(0, paramIndex - 2));
+  const countResult = await pool.query(
+    countQuery,
+    values.slice(0, paramIndex - 1)
+  );
   const total = parseInt(countResult.rows[0].count, 10);
 
   return {
@@ -205,17 +267,16 @@ const getAllPurchaseOrders = async (
   };
 };
 
-const getSinglePurchaseOrder = async (id: number): Promise<IPurchaseOrderComplete | null> => {
+const getSinglePurchaseOrder = async (
+  id: number
+): Promise<IPurchaseOrderWithItems | null> => {
   const client = await pool.connect();
   try {
     // Get purchase order
     const poQuery = `
       SELECT 
-        po.*,
-        v.name as vendor_name,
-        v.vendor_code as vendor_code
+        po.*
       FROM purchase_orders po
-      LEFT JOIN vendors v ON po.vendor_id = v.id
       WHERE po.id = $1;
     `;
 
@@ -226,52 +287,44 @@ const getSinglePurchaseOrder = async (id: number): Promise<IPurchaseOrderComplet
 
     const purchaseOrder = poResult.rows[0];
 
-    // Get PO items
+    // Get PO items with item details
     const itemsQuery = `
       SELECT 
-        pi.*,
-        i.item_code,
+        pi.id,
+        pi.po_id,
+        pi.item_number,
+        pi.quantity,
+        pi.created_at,
+        pi.updated_at,
+        i.id as item_id,
+        i.item_number as item_code,
         i.item_description,
-        i.uom_primary
+        i.item_type,
+        i.inventory_organization,
+        i.primary_uom,
+        i.uom_code,
+        i.item_status
       FROM po_items pi
-      LEFT JOIN items i ON pi.item_id = i.id
-      WHERE pi.po_id = $1;
+      INNER JOIN items i ON pi.item_number = i.item_number
+      WHERE pi.po_id = $1
+      ORDER BY pi.id;
     `;
 
     const itemsResult = await client.query(itemsQuery, [id]);
-    const items = itemsResult.rows;
-
-    // Get RFID tags for each item
-    for (const item of items) {
-      const rfidQuery = `
-        SELECT 
-          pir.*,
-          rt.tag_uid,
-          rt.status as rfid_status
-        FROM po_items_rfid pir
-        LEFT JOIN rfid_tags rt ON pir.rfid_id = rt.id
-        WHERE pir.po_item_id = $1;
-      `;
-
-      const rfidResult = await client.query(rfidQuery, [item.id]);
-      item.rfid_tags = rfidResult.rows;
-    }
 
     return {
       ...purchaseOrder,
-      items,
+      items: itemsResult.rows,
     };
   } finally {
     client.release();
   }
 };
 
-
-
 const updatePurchaseOrder = async (
   id: number,
   data: IUpdatePurchaseOrder
-): Promise<IPurchaseOrderComplete | null> => {
+): Promise<IPurchaseOrderWithItems | null> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -284,7 +337,7 @@ const updatePurchaseOrder = async (
       throw new ApiError(httpStatus.NOT_FOUND, 'Purchase order not found');
     }
 
-    // Update purchase order fields
+    // Update purchase order fields if provided
     const updateFields: string[] = [];
     const values: any[] = [];
     let paramIndex = 1;
@@ -294,29 +347,24 @@ const updatePurchaseOrder = async (
       values.push(data.po_number);
     }
 
-    if (data.vendor_id !== undefined) {
-      updateFields.push(`vendor_id = $${paramIndex++}`);
-      values.push(data.vendor_id);
+    if (data.po_description !== undefined) {
+      updateFields.push(`po_description = $${paramIndex++}`);
+      values.push(data.po_description);
     }
 
-    if (data.total_amount !== undefined) {
-      updateFields.push(`total_amount = $${paramIndex++}`);
-      values.push(data.total_amount);
+    if (data.supplier_name !== undefined) {
+      updateFields.push(`supplier_name = $${paramIndex++}`);
+      values.push(data.supplier_name);
     }
 
-    if (data.requisition_id !== undefined) {
-      updateFields.push(`requisition_id = $${paramIndex++}`);
-      values.push(data.requisition_id);
+    if (data.po_type !== undefined) {
+      updateFields.push(`po_type = $${paramIndex++}`);
+      values.push(data.po_type);
     }
 
-    if (data.status !== undefined) {
-      updateFields.push(`status = $${paramIndex++}`);
-      values.push(data.status);
-    }
+    updateFields.push(`updated_at = CURRENT_TIMESTAMP`);
 
-    updateFields.push(`updated_at = NOW()`);
-
-    if (updateFields.length > 0) {
+    if (values.length > 0) {
       const updateQuery = `
         UPDATE purchase_orders 
         SET ${updateFields.join(', ')}
@@ -329,62 +377,37 @@ const updatePurchaseOrder = async (
     }
 
     // Update items if provided
-    if (data.items && data.items.length > 0) {
-      // First, unassign RFID tags from existing items before deleting
-      const existingRfidQuery = `
-        SELECT rfid_id FROM po_items_rfid 
-        WHERE po_item_id IN (SELECT id FROM po_items WHERE po_id = $1);
-      `;
-      const existingRfidResult = await client.query(existingRfidQuery, [id]);
-      
-      // Unassign existing RFID tags
-      for (const rfidRow of existingRfidResult.rows) {
-        const unassignRfidQuery = `
-          UPDATE rfid_tags 
-          SET status = 'available', updated_at = NOW()
-          WHERE id = $1;
-        `;
-        await client.query(unassignRfidQuery, [rfidRow.rfid_id]);
-      }
-
-      // Delete existing items and RFID associations
-      await client.query('DELETE FROM po_items_rfid WHERE po_item_id IN (SELECT id FROM po_items WHERE po_id = $1);', [id]);
+    if (data.po_items !== undefined) {
+      // Delete existing items (CASCADE will handle this)
       await client.query('DELETE FROM po_items WHERE po_id = $1;', [id]);
 
       // Insert new items
-      for (const item of data.items) {
-        const insertItemQuery = `
-          INSERT INTO po_items 
-            (po_id, item_id, quantity, unit)
-          VALUES ($1, $2, $3, $4)
-          RETURNING *;
-        `;
+      if (data.po_items.length > 0) {
+        for (const item of data.po_items) {
+          // Verify that item_number exists
+          const itemCheckQuery = `
+            SELECT item_number FROM items WHERE item_number = $1;
+          `;
+          const itemCheckResult = await client.query(itemCheckQuery, [
+            item.item_number,
+          ]);
 
-        const itemValues = [id, item.item_id, item.quantity, item.unit];
-        const itemResult = await client.query(insertItemQuery, itemValues);
-        const poItem = itemResult.rows[0];
-
-        // Insert RFID tags if provided
-        if ('rfid_tags' in item && item.rfid_tags && Array.isArray(item.rfid_tags) && item.rfid_tags.length > 0) {
-          for (const rfid of item.rfid_tags) {
-            const insertRfidQuery = `
-              INSERT INTO po_items_rfid 
-                (po_item_id, rfid_id, quantity)
-              VALUES ($1, $2, $3)
-              RETURNING *;
-            `;
-
-            const rfidValues = [poItem.id, rfid.rfid_id, rfid.quantity ?? 1];
-            await client.query(insertRfidQuery, rfidValues);
-
-            // Update RFID tag status to 'assigned'
-            const updateRfidQuery = `
-              UPDATE rfid_tags 
-              SET status = 'assigned', updated_at = NOW()
-              WHERE id = $1;
-            `;
-            await client.query(updateRfidQuery, [rfid.rfid_id]);
+          if (itemCheckResult.rows.length === 0) {
+            throw new ApiError(
+              httpStatus.BAD_REQUEST,
+              `Item with number '${item.item_number}' not found`
+            );
           }
+
+          const insertItemQuery = `
+            INSERT INTO po_items 
+              (po_id, item_number, quantity)
+            VALUES ($1, $2, $3)
+            RETURNING *;
+          `;
+
+          const itemValues = [id, item.item_number, item.quantity];
+          await client.query(insertItemQuery, itemValues);
         }
       }
     }
@@ -393,9 +416,28 @@ const updatePurchaseOrder = async (
 
     // Return the updated purchase order
     return await getSinglePurchaseOrder(id);
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK');
-    throw error;
+
+    if (error instanceof ApiError) throw error;
+
+    // Handle foreign key constraint violation
+    if (error.code === '23503') {
+      throw new ApiError(
+        httpStatus.BAD_REQUEST,
+        'Referenced item does not exist'
+      );
+    }
+
+    // Handle duplicate PO number
+    if (error.code === '23505') {
+      throw new ApiError(httpStatus.CONFLICT, 'PO number already exists');
+    }
+
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Failed to update purchase order'
+    );
   } finally {
     client.release();
   }
@@ -405,8 +447,6 @@ const deletePurchaseOrder = async (id: number): Promise<void> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-
-    // Check if purchase order exists
     const checkQuery = `SELECT id FROM purchase_orders WHERE id = $1;`;
     const checkResult = await client.query(checkQuery, [id]);
 
@@ -414,34 +454,92 @@ const deletePurchaseOrder = async (id: number): Promise<void> => {
       throw new ApiError(httpStatus.NOT_FOUND, 'Purchase order not found');
     }
 
-    // First, unassign RFID tags from all items in this purchase order
-    const existingRfidQuery = `
-      SELECT rfid_id FROM po_items_rfid 
-      WHERE po_item_id IN (SELECT id FROM po_items WHERE po_id = $1);
-    `;
-    const existingRfidResult = await client.query(existingRfidQuery, [id]);
-    
-    // Unassign existing RFID tags
-    for (const rfidRow of existingRfidResult.rows) {
-      const unassignRfidQuery = `
-        UPDATE rfid_tags 
-        SET status = 'available', updated_at = NOW()
-        WHERE id = $1;
-      `;
-      await client.query(unassignRfidQuery, [rfidRow.rfid_id]);
-    }
 
-    // Delete purchase order (cascade will handle po_items and po_items_rfid)
     const deleteQuery = `DELETE FROM purchase_orders WHERE id = $1;`;
     await client.query(deleteQuery, [id]);
 
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
-    throw error;
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(
+      httpStatus.INTERNAL_SERVER_ERROR,
+      'Failed to delete purchase order'
+    );
   } finally {
     client.release();
   }
+};
+
+const generatePONumber = async (): Promise<string> => {
+  const currentYear = new Date().getFullYear();
+  const prefix = `GP-${currentYear}-`;
+
+  const result = await pool.query(
+    `SELECT po_number FROM purchase_orders 
+     WHERE po_number LIKE $1 
+     ORDER BY po_number DESC LIMIT 1`,
+    [`${prefix}%`]
+  );
+
+  if (result.rows.length === 0) {
+    return `${prefix}001`;
+  }
+
+  const lastPO = result.rows[0].po_number;
+  
+  const match = lastPO.match(/GP-\d{4}-(\d+)$/);
+  if (match) {
+    const lastNumber = parseInt(match[1], 10);
+    const newNumber = lastNumber + 1;
+    return `${prefix}${String(newNumber).padStart(3, '0')}`;
+  }
+
+  return `${prefix}001`;
+};
+
+
+const autoCreatePurchaseOrder = async (
+  data: ICreatePurchaseOrder & { auto_generate_po_number?: boolean }
+): Promise<IPurchaseOrderWithItems | null> => {
+  let poNumber = data.po_number;
+  
+  if (data.auto_generate_po_number || !poNumber) {
+    poNumber = await generatePONumber();
+  }
+
+  return await createPurchaseOrder({
+    ...data,
+    po_number: poNumber,
+  });
+};
+
+// Quick Generate PO with fixed data (for automatic generation)
+const quickGeneratePurchaseOrder = async (): Promise<IPurchaseOrderWithItems | null> => {
+  // Fixed data for automatic PO generation
+  const fixedData: ICreatePurchaseOrder = {
+    po_number: '', // Will be auto-generated
+    po_description: 'Purchase order for telecom items',
+    supplier_name: 'Tech Supplies Ltd.',
+    po_type: 'Standard Purchase',
+    po_items: [
+      {
+        item_number: '500497359',
+        quantity: 1000
+      },
+      {
+        item_number: '500180440',
+        quantity: 5000
+      },
+      {
+        item_number: '3002379',
+        quantity: 2500
+      }
+    ]
+  };
+
+  // Use auto-create to generate PO number and create PO
+  return await autoCreatePurchaseOrder(fixedData);
 };
 
 export const PurchaseOrderService = {
@@ -450,4 +548,7 @@ export const PurchaseOrderService = {
   getSinglePurchaseOrder,
   updatePurchaseOrder,
   deletePurchaseOrder,
+  generatePONumber,
+  autoCreatePurchaseOrder,
+  quickGeneratePurchaseOrder,
 };

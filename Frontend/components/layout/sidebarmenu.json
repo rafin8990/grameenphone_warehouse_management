@@ -6,6 +6,21 @@
             "label": "Dashboard"
         },
         {
+            "href": "/items",
+            "icon": "Package",
+            "label": "Items"
+        },
+        {
+            "href": "/purchase-orders",
+            "icon": "ShoppingCart",
+            "label": "Purchase Orders"
+        },
+        {
+            "href": "/po-hex-codes",
+            "icon": "Hash",
+            "label": "PO Hex Codes"
+        },
+        {
             "href": "/categories",
             "icon": "Tag",
             "label": "Categories"
@@ -26,19 +41,9 @@
             "label": "Vendors"
         },
         {
-            "href": "/items",
-            "icon": "Package",
-            "label": "Items"
-        },
-        {
             "href": "/requisitions",
             "icon": "ClipboardList",
             "label": "Requisitions"
-        },
-        {
-            "href": "/purchase-orders",
-            "icon": "ShoppingCart",
-            "label": "Purchase Orders"
         }
     ]
 }

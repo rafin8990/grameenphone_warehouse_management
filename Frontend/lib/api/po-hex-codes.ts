@@ -1,4 +1,4 @@
-// API for Items - New Simplified Structure
+// API for PO Hex Codes
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
@@ -19,48 +19,49 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   return response.json();
 };
 
-export interface IItem {
+export interface IPoHexCode {
   id?: number;
+  po_number: string;
+  lot_no: string;
   item_number: string;
-  item_description?: string | null;
-  item_type?: string | null;
-  inventory_organization?: string | null;
-  primary_uom?: string | null;
-  uom_code: string;
-  item_status: 'active' | 'inactive';
+  quantity: number;
+  uom: string;
+  hex_code?: string; // Auto-generated, 16 characters
   created_at?: Date;
   updated_at?: Date;
 }
 
-export interface ItemQueryParams {
+export interface PoHexCodeQueryParams {
   searchTerm?: string;
+  po_number?: string;
+  lot_no?: string;
   item_number?: string;
-  item_description?: string;
-  item_type?: string;
-  inventory_organization?: string;
-  primary_uom?: string;
-  uom_code?: string;
-  item_status?: 'active' | 'inactive';
+  hex_code?: string;
   page?: number;
   limit?: number;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 }
 
-export interface CreateItemData {
+export interface CreatePoHexCodeData {
+  po_number: string;
+  lot_no: string;
   item_number: string;
-  item_description?: string;
-  item_type?: string;
-  inventory_organization?: string;
-  primary_uom?: string;
-  uom_code: string;
-  item_status?: 'active' | 'inactive';
+  quantity: number;
+  uom: string;
 }
 
-export interface UpdateItemData extends Partial<CreateItemData> {}
+export interface UpdatePoHexCodeData {
+  po_number?: string;
+  lot_no?: string;
+  item_number?: string;
+  quantity?: number;
+  uom?: string;
+  // Note: hex_code cannot be updated
+}
 
-export interface ItemResponse {
-  data: IItem[];
+export interface PoHexCodeResponse {
+  data: IPoHexCode[];
   meta?: {
     page: number;
     limit: number;
@@ -71,9 +72,9 @@ export interface ItemResponse {
   };
 }
 
-export const itemsApi = {
-  // Get all items with pagination and filtering
-  getAll: async (params: ItemQueryParams = {}): Promise<ItemResponse> => {
+export const poHexCodesApi = {
+  // Get all PO hex codes with pagination and filtering
+  getAll: async (params: PoHexCodeQueryParams = {}): Promise<PoHexCodeResponse> => {
     try {
       const queryString = new URLSearchParams();
       Object.entries(params).forEach(([key, value]) => {
@@ -81,63 +82,64 @@ export const itemsApi = {
           queryString.append(key, value.toString());
         }
       });
-      const endpoint = `/api/v1/items${queryString.toString() ? `?${queryString.toString()}` : ''}`;
+      const endpoint = `/api/v1/po-hex-codes${queryString.toString() ? `?${queryString.toString()}` : ''}`;
       const response = await apiRequest(endpoint);
       return response;
     } catch (error) {
-      console.error('Error fetching items:', error);
+      console.error('Error fetching PO hex codes:', error);
       throw error;
     }
   },
 
-  // Get single item by ID
-  getById: async (id: number): Promise<IItem> => {
+  // Get single PO hex code by ID
+  getById: async (id: number): Promise<IPoHexCode> => {
     try {
-      const response = await apiRequest(`/api/v1/items/${id}`);
+      const response = await apiRequest(`/api/v1/po-hex-codes/${id}`);
       return response.data;
     } catch (error) {
-      console.error('Error fetching item:', error);
+      console.error('Error fetching PO hex code:', error);
       throw error;
     }
   },
 
-  // Create new item
-  create: async (data: CreateItemData): Promise<IItem> => {
+  // Create new PO hex code
+  create: async (data: CreatePoHexCodeData): Promise<IPoHexCode> => {
     try {
-      const response = await apiRequest('/api/v1/items', {
+      const response = await apiRequest('/api/v1/po-hex-codes', {
         method: 'POST',
         body: JSON.stringify(data),
       });
       return response.data;
     } catch (error) {
-      console.error('Error creating item:', error);
+      console.error('Error creating PO hex code:', error);
       throw error;
     }
   },
 
-  // Update item
-  update: async (id: number, data: UpdateItemData): Promise<IItem> => {
+  // Update PO hex code (hex_code will not change)
+  update: async (id: number, data: UpdatePoHexCodeData): Promise<IPoHexCode> => {
     try {
-      const response = await apiRequest(`/api/v1/items/${id}`, {
+      const response = await apiRequest(`/api/v1/po-hex-codes/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(data),
       });
       return response.data;
     } catch (error) {
-      console.error('Error updating item:', error);
+      console.error('Error updating PO hex code:', error);
       throw error;
     }
   },
 
-  // Delete item
+  // Delete PO hex code
   delete: async (id: number): Promise<void> => {
     try {
-      await apiRequest(`/api/v1/items/${id}`, {
+      await apiRequest(`/api/v1/po-hex-codes/${id}`, {
         method: 'DELETE',
       });
     } catch (error) {
-      console.error('Error deleting item:', error);
+      console.error('Error deleting PO hex code:', error);
       throw error;
     }
   },
 };
+

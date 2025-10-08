@@ -1,4 +1,4 @@
-// Using fetch instead of axios for simplicity
+// API for Purchase Orders - New Simplified Structure
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
 const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
@@ -12,7 +12,8 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
+    const error = await response.json().catch(() => ({ message: 'Request failed' }));
+    throw new Error(error.message || `HTTP error! status: ${response.status}`);
   }
 
   return response.json();
@@ -21,14 +22,9 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}) => {
 export interface IPurchaseOrder {
   id?: number;
   po_number: string;
-  vendor_id: number;
-  vendor_name?: string;
-  vendor_code?: string;
-  total_amount?: number;
-  requisition_id?: number;
-  status: 'pending' | 'approved' | 'partially_received' | 'received' | 'closed' | 'cancelled';
-  currency?: string;
-  status_reason?: string;
+  po_description?: string | null;
+  supplier_name: string;
+  po_type?: string | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -36,37 +32,27 @@ export interface IPurchaseOrder {
 export interface IPoItem {
   id?: number;
   po_id?: number;
-  item_id: number;
+  item_number: string;
   item_code?: string;
   item_description?: string;
-  uom_primary?: string;
+  item_type?: string;
+  primary_uom?: string;
+  uom_code?: string;
+  item_status?: string;
   quantity: number;
-  unit?: string;
-  unit_price?: number;
-  tax_percent?: number;
-  line_total?: number;
-}
-
-export interface IPoItemWithRfid extends IPoItem {
-  rfid_tags?: {
-    po_item_id?: number;
-    rfid_id: number;
-    tag_uid?: string;
-    rfid_status?: string;
-    quantity: number;
-  }[];
+  created_at?: Date;
+  updated_at?: Date;
 }
 
 export interface IPurchaseOrderWithItems extends IPurchaseOrder {
-  items: IPoItemWithRfid[];
+  items?: IPoItem[];
 }
 
 export interface PurchaseOrderQueryParams {
   searchTerm?: string;
   po_number?: string;
-  vendor_id?: number;
-  status?: 'pending' | 'received' | 'cancelled';
-  requisition_id?: number;
+  supplier_name?: string;
+  po_type?: string;
   page?: number;
   limit?: number;
   sortBy?: string;
@@ -75,24 +61,24 @@ export interface PurchaseOrderQueryParams {
 
 export interface CreatePurchaseOrderData {
   po_number: string;
-  vendor_id: number;
-  total_amount?: number;
-  requisition_id?: number;
-  status?: 'pending' | 'approved' | 'partially_received' | 'received' | 'closed' | 'cancelled';
-  currency?: string;
-  status_reason?: string;
-  items: Omit<IPoItemWithRfid, 'id' | 'po_id'>[];
+  po_description?: string;
+  supplier_name: string;
+  po_type?: string;
+  po_items: {
+    item_number: string;
+    quantity: number;
+  }[];
 }
 
 export interface UpdatePurchaseOrderData {
   po_number?: string;
-  vendor_id?: number;
-  total_amount?: number;
-  requisition_id?: number;
-  status?: 'pending' | 'approved' | 'partially_received' | 'received' | 'closed' | 'cancelled';
-  currency?: string;
-  status_reason?: string;
-  items?: Omit<IPoItemWithRfid, 'id' | 'po_id'>[];
+  po_description?: string;
+  supplier_name?: string;
+  po_type?: string;
+  po_items?: {
+    item_number: string;
+    quantity: number;
+  }[];
 }
 
 export interface PurchaseOrderResponse {
@@ -137,7 +123,7 @@ export const purchaseOrdersApi = {
     }
   },
 
-  // Create new purchase order
+  // Create new purchase order (regular endpoint)
   create: async (data: CreatePurchaseOrderData): Promise<IPurchaseOrderWithItems> => {
     try {
       const response = await apiRequest('/api/v1/purchase-orders', {
@@ -147,6 +133,33 @@ export const purchaseOrdersApi = {
       return response.data;
     } catch (error) {
       console.error('Error creating purchase order:', error);
+      throw error;
+    }
+  },
+
+  // Quick generate purchase order (no data needed - uses fixed data)
+  quickGenerate: async (): Promise<IPurchaseOrderWithItems> => {
+    try {
+      const response = await apiRequest('/api/v1/purchase-orders/quick-generate', {
+        method: 'POST',
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error quick-generating purchase order:', error);
+      throw error;
+    }
+  },
+
+  // Auto-create purchase order (can auto-generate PO number)
+  autoCreate: async (data: Partial<CreatePurchaseOrderData>): Promise<IPurchaseOrderWithItems> => {
+    try {
+      const response = await apiRequest('/api/v1/purchase-orders/auto-generate', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error auto-creating purchase order:', error);
       throw error;
     }
   },
@@ -176,60 +189,4 @@ export const purchaseOrdersApi = {
       throw error;
     }
   },
-
-  // Get purchase orders by status
-  getByStatus: async (status: string): Promise<IPurchaseOrderWithItems[]> => {
-    try {
-      const response = await apiRequest(`/api/v1/purchase-orders/status/${status}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching purchase orders by status:', error);
-      throw error;
-    }
-  },
-
-  // Get purchase orders by vendor
-  getByVendor: async (vendorId: number): Promise<IPurchaseOrderWithItems[]> => {
-    try {
-      const response = await apiRequest(`/api/v1/purchase-orders/vendor/${vendorId}`);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching purchase orders by vendor:', error);
-      throw error;
-    }
-  },
-
-  // Mark purchase order as received
-  markAsReceived: async (id: number): Promise<IPurchaseOrderWithItems> => {
-    try {
-      const response = await apiRequest(`/api/v1/purchase-orders/${id}/receive`, {
-        method: 'POST',
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error marking purchase order as received:', error);
-      throw error;
-    }
-  },
-
-  // Cancel purchase order
-  cancel: async (id: number, reason?: string): Promise<IPurchaseOrderWithItems> => {
-    try {
-      const response = await apiRequest(`/api/v1/purchase-orders/${id}/cancel`, {
-        method: 'POST',
-        body: JSON.stringify({ reason }),
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error cancelling purchase order:', error);
-      throw error;
-    }
-  }
 };
-
-// Legacy function names for backward compatibility
-export const getAllPurchaseOrders = purchaseOrdersApi.getAll;
-export const getPurchaseOrderById = purchaseOrdersApi.getById;
-export const createPurchaseOrder = purchaseOrdersApi.create;
-export const updatePurchaseOrder = purchaseOrdersApi.update;
-export const deletePurchaseOrder = purchaseOrdersApi.delete;

@@ -1,61 +1,48 @@
 export type IPurchaseOrder = {
   id?: number;
   po_number: string;
-  vendor_id: number;
-  total_amount?: number | null;
-  requisition_id?: number | null;
-  status: 'pending' | 'approved' | 'partially_received' | 'received' | 'closed' | 'cancelled';
-  currency?: string;
-  status_reason?: string | null;
+  po_description?: string | null;
+  supplier_name: string;
+  po_type?: string | null;
   created_at?: Date;
   updated_at?: Date;
 };
 
 export type IPoItem = {
   id?: number;
-  po_id: number;
-  item_id: number;
+  po_id?: number;
+  item_number: string;
   quantity: number;
-  unit: string;
-  unit_price?: number | null;
-  tax_percent?: number | null;
-  line_total?: number | null;
+  created_at?: Date;
+  updated_at?: Date;
 };
 
-export type IPoItemRfid = {
-  id?: number;
-  po_item_id: number;
-  rfid_id: number;
-  quantity: number;
-};
-
-// Extended interfaces for relationships
+// Extended interface for purchase order with items
 export type IPurchaseOrderWithItems = IPurchaseOrder & {
   items?: IPoItem[];
 };
 
-export type IPoItemWithRfid = IPoItem & {
-  rfid_tags?: IPoItemRfid[];
-};
-
-export type IPurchaseOrderComplete = IPurchaseOrder & {
-  items?: IPoItemWithRfid[];
-};
-
-// Interface for creating purchase order with items and RFID
-export type ICreatePurchaseOrder = IPurchaseOrder & {
-  items?: Omit<IPoItem, 'po_id' | 'id'>[];
-};
-
-export type ICreatePoItem = Omit<IPoItem, 'po_id' | 'id'> & {
-  rfid_tags?: Omit<IPoItemRfid, 'po_item_id' | 'id'>[];
-};
-
-export type ICreatePurchaseOrderComplete = IPurchaseOrder & {
-  items?: ICreatePoItem[];
+// Interface for creating purchase order with items
+export type ICreatePurchaseOrder = {
+  po_number: string;
+  po_description?: string | null;
+  supplier_name: string;
+  po_type?: string | null;
+  po_items?: Omit<IPoItem, 'id' | 'po_id' | 'created_at' | 'updated_at'>[];
 };
 
 // Interface for updating purchase order
-export type IUpdatePurchaseOrder = Partial<IPurchaseOrder> & {
-  items?: (IPoItem | Omit<IPoItem, 'po_id'>)[];
+export type IUpdatePurchaseOrder = {
+  po_number?: string;
+  po_description?: string | null;
+  supplier_name?: string;
+  po_type?: string | null;
+  po_items?: Omit<IPoItem, 'id' | 'po_id' | 'created_at' | 'updated_at'>[];
+};
+
+export type IPurchaseOrderFilters = {
+  searchTerm?: string;
+  po_number?: string;
+  supplier_name?: string;
+  po_type?: string;
 };
