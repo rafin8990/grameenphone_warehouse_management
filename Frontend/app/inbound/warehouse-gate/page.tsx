@@ -12,10 +12,12 @@ interface IScanEvent {
   po_number: string;
   item_number: string;
   item_description: string;
-  quantity: number;
+  quantity: number;  // Total aggregated quantity
+  scanned_quantity?: number;  // Quantity from this scan
   lot_no: string;
   timestamp: string;
   epc: string;
+  isDuplicate?: boolean;  // If this is a duplicate scan
 }
 
 export default function WarehouseGatePage() {
@@ -98,11 +100,16 @@ export default function WarehouseGatePage() {
 
         {/* Latest Scan Display */}
         {lastScan && (
-          <Card className="border-2 border-green-500 bg-green-50">
+          <Card className={`border-2 ${lastScan.isDuplicate ? 'border-orange-500 bg-orange-50' : 'border-green-500 bg-green-50'}`}>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <Radio className="h-5 w-5 text-green-600 animate-pulse" />
+                <Radio className={`h-5 w-5 ${lastScan.isDuplicate ? 'text-orange-600' : 'text-green-600'} animate-pulse`} />
                 Latest Scan
+                {lastScan.isDuplicate && (
+                  <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
+                    Duplicate - Already Counted
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -116,8 +123,11 @@ export default function WarehouseGatePage() {
                   <p className="text-lg font-semibold font-mono">{lastScan.item_number}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-600 mb-1">Quantity</p>
+                  <p className="text-xs text-gray-600 mb-1">Total Quantity</p>
                   <p className="text-2xl font-bold text-green-600">{lastScan.quantity.toLocaleString()}</p>
+                  {lastScan.scanned_quantity && (
+                    <p className="text-xs text-gray-500">+{lastScan.scanned_quantity} this scan</p>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs text-gray-600 mb-1">Time</p>

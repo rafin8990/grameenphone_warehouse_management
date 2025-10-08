@@ -63,7 +63,78 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     const item_description = itemResult.rows[0].item_description || '';
     console.log('✅ Item found:', { item_number, item_description });
 
-    // Step 3: Check if inbound record exists for this PO
+    // Step 3: Create processed_epcs table if it doesn't exist
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS processed_epcs (
+        id SERIAL PRIMARY KEY,
+        po_number VARCHAR(100) NOT NULL,
+        epc VARCHAR(255) NOT NULL,
+        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(po_number, epc)
+      );
+    `);
+
+    // Step 4: Check if this EPC was already processed for this PO
+    const epcCheckQuery = `
+      SELECT epc FROM processed_epcs WHERE po_number = $1 AND epc = $2;
+    `;
+    const epcCheckResult = await client.query(epcCheckQuery, [po_number, scanData.epc]);
+
+    if (epcCheckResult.rows.length > 0) {
+      // EPC already processed - skip and return existing inbound
+      console.log(`⚠️ EPC ${scanData.epc} already processed for ${po_number} - Skipping (no quantity change)`);
+      await client.query('ROLLBACK');
+      
+      // Get existing inbound record
+      const existingQuery = `SELECT * FROM inbound WHERE po_number = $1`;
+      const existingResult = await pool.query(existingQuery, [po_number]);
+      
+      if (existingResult.rows.length > 0) {
+        const existing = existingResult.rows[0];
+        const existingInbound = {
+          ...existing,
+          items: Array.isArray(existing.items) ? existing.items : JSON.parse(existing.items),
+        };
+
+        // Still emit socket event to show on dashboard (but with isDuplicate flag)
+        try {
+          const io = getSocketInstance();
+          if (io) {
+            // Find the item in existing inbound
+            const existingItem = existingInbound.items.find(
+              (item: IInboundItem) => item.item_number === item_number
+            );
+
+            io.emit('inbound:new-scan', {
+              po_number,
+              item_number,
+              item_description,
+              quantity: existingItem ? existingItem.quantity : Number(quantity),
+              scanned_quantity: Number(quantity),
+              lot_no,
+              timestamp: new Date().toISOString(),
+              epc: scanData.epc,
+              isDuplicate: true,  // Mark as duplicate scan
+            });
+            console.log(`✅ Socket event emitted (duplicate scan) for ${po_number}`);
+          }
+        } catch (socketError) {
+          console.error('Socket emit error (non-critical):', socketError);
+        }
+
+        return existingInbound;
+      }
+      return null;
+    }
+
+    // Mark this EPC as processed immediately
+    await client.query(
+      'INSERT INTO processed_epcs (po_number, epc) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [po_number, scanData.epc]
+    );
+    console.log(`✅ EPC ${scanData.epc} marked as processed for ${po_number}`);
+
+    // Step 5: Check if inbound record exists for this PO
     const inboundQuery = `
       SELECT id, items
       FROM inbound
@@ -98,6 +169,8 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       inboundRecord.items = Array.isArray(inboundRecord.items) 
         ? inboundRecord.items 
         : JSON.parse(inboundRecord.items as any);
+      
+      console.log('✨ New inbound created:', { id: inboundRecord.id, po_number });
     } else {
       // Inbound record exists - update items JSON
       const existingInbound = inboundResult.rows[0];
@@ -108,45 +181,20 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       
       console.log('📦 Existing inbound found:', { id: existingInbound.id, items_count: items.length });
 
-      // Check if this exact EPC was already processed
-      // We need to track processed EPCs separately
-      const epcCheckQuery = `
-        SELECT epc FROM processed_epcs WHERE po_number = $1 AND epc = $2;
-      `;
-      
-      // First, create processed_epcs table if it doesn't exist
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS processed_epcs (
-          id SERIAL PRIMARY KEY,
-          po_number VARCHAR(100) NOT NULL,
-          epc VARCHAR(255) NOT NULL,
-          processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(po_number, epc)
-        );
-      `);
-
-      const epcCheckResult = await client.query(epcCheckQuery, [po_number, scanData.epc]);
-
-      if (epcCheckResult.rows.length > 0) {
-        // EPC already processed - skip
-        await client.query('COMMIT');
-        return existingInbound;
-      }
-
-      // Mark this EPC as processed
-      await client.query(
-        'INSERT INTO processed_epcs (po_number, epc) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-        [po_number, scanData.epc]
-      );
-
       // Find if item already exists in the items array
       const existingItemIndex = items.findIndex(
         (item) => item.item_number === item_number
       );
 
+      let finalQuantity: number;
+      let isNewItem: boolean;
+
       if (existingItemIndex !== -1) {
         // Item exists - increase quantity
         items[existingItemIndex].quantity += Number(quantity);
+        finalQuantity = items[existingItemIndex].quantity;
+        isNewItem = false;
+        console.log(`📈 Quantity increased for ${item_number}: ${items[existingItemIndex].quantity - Number(quantity)} → ${finalQuantity}`);
       } else {
         // Item doesn't exist - add new item
         items.push({
@@ -155,6 +203,9 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
           lot_no,
           quantity: Number(quantity),
         });
+        finalQuantity = Number(quantity);
+        isNewItem = true;
+        console.log(`✨ New item added: ${item_number} with quantity ${finalQuantity}`);
       }
 
       // Update inbound record
@@ -181,6 +232,12 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
 
     await client.query('COMMIT');
 
+    // Get the final quantity from the inbound record
+    const finalItemData = inboundRecord.items.find(
+      (item: IInboundItem) => item.item_number === item_number
+    );
+    const displayQuantity = finalItemData ? finalItemData.quantity : Number(quantity);
+
     // Emit socket event for live dashboard
     try {
       const io = getSocketInstance();
@@ -189,12 +246,13 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
           po_number,
           item_number,
           item_description,
-          quantity: Number(quantity),
+          quantity: displayQuantity,  // Use aggregated quantity
+          scanned_quantity: Number(quantity),  // Original scan quantity
           lot_no,
           timestamp: new Date().toISOString(),
           epc: scanData.epc,
         });
-        console.log('✅ Socket event emitted for', po_number);
+        console.log(`✅ Socket event emitted for ${po_number} - Item: ${item_number}, Total Qty: ${displayQuantity}`);
       } else {
         console.log('⚠️ Socket.IO not available, skipping event emit');
       }
