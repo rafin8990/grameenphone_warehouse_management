@@ -21,6 +21,11 @@
             "label": "PO Hex Codes"
         },
         {
+            "href": "/inbound/warehouse-gate",
+            "icon": "Warehouse",
+            "label": "Inbound"
+        },
+        {
             "href": "/categories",
             "icon": "Tag",
             "label": "Categories"

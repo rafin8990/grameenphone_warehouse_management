@@ -5,6 +5,7 @@ import { ItemRoutes } from '../modules/items/items.route';
 import { LocationRoutes } from '../modules/locations/locations.route';
 import { PurchaseOrderRoutes } from '../modules/purchase-orders/purchase-orders.route';
 import { PoHexCodeRoutes } from '../modules/po-hex-codes/po-hex-codes.route';
+import { InboundRoutes } from '../modules/inbound/inbound.route';
 import { RequisitionRoutes } from '../modules/requisitions/requisitions.route';
 import { RfidRoutes } from '../modules/rfid/rfid.route';
 import { StockBalanceRoutes } from '../modules/stock-balance/stock-balance.route';
@@ -48,6 +49,10 @@ const moduleRoutes = [
   {
     path: '/po-hex-codes',
     routes: PoHexCodeRoutes,
+  },
+  {
+    path: '/inbound',
+    routes: InboundRoutes,
   },
   {
     path: '/stock-balances',

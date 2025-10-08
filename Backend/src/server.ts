@@ -1,8 +1,12 @@
 import { Server } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
 import app from './app';
 import config from './config';
 import { errorlogger, logger } from './shared/logger';
 import pool from './utils/dbClient';
+
+// Global socket instance for emitting events
+export let io: SocketIOServer;
 
 async function bootstrap() {
   try {
@@ -19,6 +23,25 @@ async function bootstrap() {
   const server: Server = app.listen(config.port, () => {
     logger.info(`🚀 Server running on port ${config.port}`);
   });
+
+  // Initialize Socket.IO
+  io = new SocketIOServer(server, {
+    cors: {
+      origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+      methods: ['GET', 'POST'],
+      credentials: true,
+    },
+  });
+
+  io.on('connection', (socket) => {
+    logger.info(`✅ Socket connected: ${socket.id}`);
+
+    socket.on('disconnect', () => {
+      logger.info(`❌ Socket disconnected: ${socket.id}`);
+    });
+  });
+
+  logger.info('✅ Socket.IO initialized');
 
 
   const exitHandler = () => {
