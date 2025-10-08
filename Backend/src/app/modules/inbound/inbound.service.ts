@@ -5,7 +5,17 @@ import { IGenericResponse } from '../../../interfaces/common';
 import { IPaginationOptions } from '../../../interfaces/pagination';
 import pool from '../../../utils/dbClient';
 import { IInbound, IInboundFilters, IInboundItem, IRfidScanData } from './inbound.interface';
-import { io } from '../../../server';
+
+// Get socket instance dynamically to avoid import issues
+const getSocketInstance = () => {
+  try {
+    const serverModule = require('../../../server');
+    return serverModule.io;
+  } catch (error) {
+    console.log('Socket.IO not available yet');
+    return null;
+  }
+};
 
 // Process RFID scan and create/update inbound record
 const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null> => {
@@ -13,12 +23,15 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
   try {
     await client.query('BEGIN');
 
+    console.log('📡 Processing RFID scan:', scanData);
+
     // Step 1: Find hex code in po_hex_codes table using EPC
     const hexCodeQuery = `
       SELECT po_number, lot_no, item_number, quantity
       FROM po_hex_codes
       WHERE hex_code = $1;
     `;
+    console.log('🔍 Searching for EPC:', scanData.epc);
     const hexCodeResult = await client.query(hexCodeQuery, [scanData.epc]);
 
     if (hexCodeResult.rows.length === 0) {
@@ -30,6 +43,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
 
     const hexCodeData = hexCodeResult.rows[0];
     const { po_number, lot_no, item_number, quantity } = hexCodeData;
+    console.log('✅ Hex code found:', { po_number, lot_no, item_number, quantity });
 
     // Step 2: Get item description from items table
     const itemQuery = `
@@ -47,6 +61,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     }
 
     const item_description = itemResult.rows[0].item_description || '';
+    console.log('✅ Item found:', { item_number, item_description });
 
     // Step 3: Check if inbound record exists for this PO
     const inboundQuery = `
@@ -79,11 +94,19 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       ]);
 
       inboundRecord = insertResult.rows[0];
-      inboundRecord.items = JSON.parse(inboundRecord.items as any);
+      // PostgreSQL JSONB automatically returns as object, no need to parse
+      inboundRecord.items = Array.isArray(inboundRecord.items) 
+        ? inboundRecord.items 
+        : JSON.parse(inboundRecord.items as any);
     } else {
       // Inbound record exists - update items JSON
       const existingInbound = inboundResult.rows[0];
-      let items: IInboundItem[] = existingInbound.items;
+      // PostgreSQL JSONB returns as object, not string
+      let items: IInboundItem[] = Array.isArray(existingInbound.items)
+        ? existingInbound.items
+        : JSON.parse(existingInbound.items as any);
+      
+      console.log('📦 Existing inbound found:', { id: existingInbound.id, items_count: items.length });
 
       // Check if this exact EPC was already processed
       // We need to track processed EPCs separately
@@ -148,22 +171,36 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       ]);
 
       inboundRecord = updateResult.rows[0];
-      inboundRecord.items = JSON.parse(inboundRecord.items as any);
+      // PostgreSQL JSONB automatically returns as object
+      inboundRecord.items = Array.isArray(inboundRecord.items)
+        ? inboundRecord.items
+        : JSON.parse(inboundRecord.items as any);
+      
+      console.log('✅ Inbound updated:', { id: inboundRecord.id, items_count: inboundRecord.items.length });
     }
 
     await client.query('COMMIT');
 
     // Emit socket event for live dashboard
-    if (io) {
-      io.emit('inbound:new-scan', {
-        po_number,
-        item_number,
-        item_description,
-        quantity: Number(quantity),
-        lot_no,
-        timestamp: new Date().toISOString(),
-        epc: scanData.epc,
-      });
+    try {
+      const io = getSocketInstance();
+      if (io) {
+        io.emit('inbound:new-scan', {
+          po_number,
+          item_number,
+          item_description,
+          quantity: Number(quantity),
+          lot_no,
+          timestamp: new Date().toISOString(),
+          epc: scanData.epc,
+        });
+        console.log('✅ Socket event emitted for', po_number);
+      } else {
+        console.log('⚠️ Socket.IO not available, skipping event emit');
+      }
+    } catch (socketError) {
+      console.error('Socket emit error (non-critical):', socketError);
+      // Don't throw - socket error shouldn't break the main flow
     }
 
     return inboundRecord;
@@ -172,9 +209,22 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
 
     if (error instanceof ApiError) throw error;
 
+    // Log the actual error for debugging
+    console.error('Inbound processing error:', error);
+
+    // Extract proper error message
+    let errorMessage = 'Failed to process RFID scan';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    } else if (error && error.message) {
+      errorMessage = String(error.message);
+    }
+
     throw new ApiError(
       httpStatus.INTERNAL_SERVER_ERROR,
-      'Failed to process RFID scan'
+      errorMessage
     );
   } finally {
     client.release();
@@ -247,10 +297,10 @@ const getAllInbounds = async (
 
   const result = await pool.query(query, values);
 
-  // Parse JSON items
+  // PostgreSQL JSONB automatically returns as JavaScript objects
   const inbounds = result.rows.map((row) => ({
     ...row,
-    items: row.items,
+    items: Array.isArray(row.items) ? row.items : JSON.parse(row.items as any),
   }));
 
   const countQuery = `SELECT COUNT(*) FROM inbound ${whereClause};`;
@@ -292,9 +342,10 @@ const getSingleInbound = async (id: number): Promise<IInbound | null> => {
     throw new ApiError(httpStatus.NOT_FOUND, 'Inbound record not found');
   }
 
+  const inbound = result.rows[0];
   return {
-    ...result.rows[0],
-    items: result.rows[0].items,
+    ...inbound,
+    items: Array.isArray(inbound.items) ? inbound.items : JSON.parse(inbound.items as any),
   };
 };
 
@@ -338,9 +389,10 @@ const updateInbound = async (
       throw new ApiError(httpStatus.NOT_FOUND, 'Inbound record not found');
     }
 
+    const inbound = result.rows[0];
     return {
-      ...result.rows[0],
-      items: result.rows[0].items,
+      ...inbound,
+      items: Array.isArray(inbound.items) ? inbound.items : JSON.parse(inbound.items as any),
     };
   } catch (error: any) {
     if (error instanceof ApiError) throw error;
