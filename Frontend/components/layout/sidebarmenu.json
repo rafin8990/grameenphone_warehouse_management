@@ -26,14 +26,19 @@
             "label": "Inbound"
         },
         {
-            "href": "/categories",
-            "icon": "Tag",
-            "label": "Categories"
-        },
-        {
             "href": "/locations",
             "icon": "MapPin",
             "label": "Locations"
+        },
+        {
+            "href": "/location-trackers",
+            "icon": "Activity",
+            "label": "Location Trackers"
+        },
+        {
+            "href": "/stock",
+            "icon": "Package",
+            "label": "Stock"
         },
         {
             "href": "/rfid",

@@ -4,6 +4,9 @@ import { ItemRoutes } from '../modules/items/items.route';
 import { PurchaseOrderRoutes } from '../modules/purchase-orders/purchase-orders.route';
 import { PoHexCodeRoutes } from '../modules/po-hex-codes/po-hex-codes.route';
 import { InboundRoutes } from '../modules/inbound/inbound.route';
+import { LocationRoutes } from '../modules/locations/locations.routes';
+import { LocationTrackerRoutes } from '../modules/location-trackers/location-trackers.routes';
+import { StockRoutes } from '../modules/stock/stock.routes';
 
 
 const router = express.Router();
@@ -28,6 +31,18 @@ const moduleRoutes = [
   {
     path: '/inbound',
     routes: InboundRoutes,
+  },
+  {
+    path: '/locations',
+    routes: LocationRoutes,
+  },
+  {
+    path: '/location-trackers',
+    routes: LocationTrackerRoutes,
+  },
+  {
+    path: '/stock',
+    routes: StockRoutes,
   },
 ];
 

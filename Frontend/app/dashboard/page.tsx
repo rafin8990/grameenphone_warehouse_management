@@ -8,13 +8,15 @@ import { useState, useEffect } from "react"
 import { AssetPerformanceCard } from "@/components/charts/AssetPerformanceCard"
 import { AssetQuantityCard } from "@/components/charts/AssetQuantityCard"
 import { ServiceScheduleStatusCard } from "@/components/charts/ServiceScheduleStatusCard"
-import { TopAssetCategories } from "@/components/charts/TopAssetCategories"
 import { DashboardAssetTable } from "@/components/dashboard/assetTable"
 import { PurchaseOrdersTable } from "@/components/dashboard/purchaseOrdersTable"
+import { LiveStockDashboard } from "@/components/dashboard/live-stock-dashboard"
+import { LivePOStatusDashboard } from "@/components/dashboard/live-po-status-dashboard"
 import { Asset } from "@/types/asset"
 // API import removed
 import { toast } from "sonner"
 import { Loading } from "@/components/ui/loading"
+import { getSocket } from "@/lib/socket"
 
 interface DashboardMetric {
   name: string
@@ -36,6 +38,7 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [sortBy, setSortBy] = useState("created_at")
   const [sortOrder, setSortOrder] = useState<"ASC" | "DESC">("DESC")
+  const [isConnected, setIsConnected] = useState(false)
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -52,7 +55,6 @@ export default function DashboardPage() {
         console.error("Error fetching dashboard data:", error)
         setDashboardData({
           metrics: [
-            { name: "categories", value: 0, icon: "/dashboard/assets.svg", label: "Total Categories" },
             { name: "locations", value: 0, icon: "/dashboard/floors.svg", label: "Total Locations" },
             { name: "rfid", value: 0, icon: "/dashboard/readers.svg", label: "Available RFID" },
             { name: "vendors", value: 0, icon: "/dashboard/vendors.svg", label: "Total Vendors" },
@@ -78,6 +80,32 @@ export default function DashboardPage() {
     loadAssets()
   }, [currentPage, itemsPerPage, searchQuery, sortBy, sortOrder])
 
+  // Socket connection for live updates
+  useEffect(() => {
+    const socket = getSocket();
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      console.log('✅ Connected to dashboard');
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+      console.log('❌ Disconnected from dashboard');
+    });
+
+    // Listen for PO status updates
+    socket.on('po:status-updated', (data) => {
+      console.log('📋 PO status update received:', data);
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('disconnect');
+      socket.off('po:status-updated');
+    };
+  }, [])
+
   async function loadAssets() {
     setIsLoading(true)
     try {
@@ -93,7 +121,7 @@ export default function DashboardPage() {
   if (loading) return <Loading variant="fullscreen" />
   if (!dashboardData) return <div>No data</div>
 
-  const { metrics, assetPerformance, assetQuantity, serviceScheduleStatus, checkInOutActivity, topAssetCategories } = dashboardData
+  const { metrics, assetPerformance, assetQuantity, serviceScheduleStatus, checkInOutActivity } = dashboardData
 
   // Example: you can add logic to switch data based on activeTab if you have different datasets
   const areaChartLabels = checkInOutActivity.chart.labels
@@ -109,79 +137,18 @@ export default function DashboardPage() {
           <Image src="/dashboard/left.svg" alt="right" width={150} height={80} className="object-contain" />
         </div>
 
-        {/* Metric Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 md:gap-6 -mt-8 mb-8">
-        {metrics.map((metric: DashboardMetric) => (
-          <Card key={metric.name} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow">
-            <CardContent className="p-4">
-              <div className="flex flex-col items-center text-center space-y-2">
-                <div className="w-12 h-12 relative">
-                  <Image 
-                    src={metric.icon} 
-                    alt={metric.label} 
-                    fill
-                    className="object-contain"
-                  />
-                </div>
-                <div className="w-full">
-                  <h3 className="text-xs font-medium text-gray-600 truncate">{metric.label}</h3>
-                  <h2 className="text-lg font-bold text-emerald-600">{metric.value.toLocaleString()}</h2>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      
 
-        {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <Card className="bg-white shadow-lg">
-            <CardContent className="p-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Check In/Out Activity</h3>
-                  <div className="flex items-center">
-                    <span className="text-emerald-500 font-medium text-sm">+{checkInOutActivity.growth}%</span>
-                    <span className="text-gray-500 text-xs ml-1">VS THIS YEAR</span>
-                  </div>
-                </div>
-                {/* Tabs */}
-                <div className="flex gap-2 mt-2 sm:mt-0">
-                  {['Daily', 'Weekly', 'Annually'].map(tab => (
-                    <button
-                      key={tab}
-                      className={`px-3 py-1 rounded-full text-sm font-medium ${activeTab === tab ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-500'}`}
-                      onClick={() => setActiveTab(tab)}
-                    >
-                      {tab}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="h-64">
-                <AreaChart labels={areaChartLabels} data={areaChartData} activeTab={activeTab} />
-              </div>
-            </CardContent>
-          </Card>
+ 
 
-          <Card className="bg-white shadow-lg">
-            <CardContent className="p-6">
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Top Asset Categories</h3>
-                <div className="text-gray-500 text-xs">LAST YEAR</div>
-              </div>
-              <div className="h-64 flex justify-center items-center">
-                <TopAssetCategories labels={topAssetCategories.labels} data={topAssetCategories.data} />
-              </div>
-            </CardContent>
-          </Card>
+        {/* Live Stock Dashboard */}
+        <div className="mb-8">
+          <LiveStockDashboard isConnected={isConnected} />
         </div>
 
-        {/* Sub Cards: Asset Performance, Asset Quantity, Service Schedule Status */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-          <AssetPerformanceCard value={assetPerformance.value} status={assetPerformance.status} statusIcon={assetPerformance.statusIcon} chart={assetPerformance.chart} />
-          <AssetQuantityCard value={assetQuantity.value} status={assetQuantity.status} statusIcon={assetQuantity.statusIcon} chart={assetQuantity.chart} />
-          <ServiceScheduleStatusCard labels={serviceScheduleStatus.labels} data={serviceScheduleStatus.data} />
+        {/* Live PO Status Dashboard */}
+        <div className="mb-8">
+          <LivePOStatusDashboard isConnected={isConnected} />
         </div>
 
         {/* Purchase Orders Section */}

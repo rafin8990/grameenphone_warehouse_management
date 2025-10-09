@@ -3,7 +3,6 @@ import pool from '../../../utils/dbClient';
 import { IGenericResponse } from '../../../interfaces/common';
 
 interface DashboardStats {
-  totalCategories: number;
   totalLocations: number;
   totalAvailableRfid: number;
   totalVendors: number;
@@ -20,10 +19,6 @@ interface DashboardData {
     icon: string;
     label: string;
   }>;
-  topAssetCategories: {
-    labels: string[];
-    data: number[];
-  };
   assetPerformance: {
     value: number;
     status: string;
@@ -58,17 +53,6 @@ interface DashboardData {
 
 const getDashboardStats = async (): Promise<DashboardStats> => {
   try {
-    // Get total categories (check both with and without status filter)
-    let categoriesQuery = 'SELECT COUNT(*) as count FROM categories';
-    let categoriesResult = await pool.query(categoriesQuery);
-    let totalCategories = parseInt(categoriesResult.rows[0].count, 10);
-    
-    // If no categories found, try with status filter
-    if (totalCategories === 0) {
-      categoriesQuery = 'SELECT COUNT(*) as count FROM categories WHERE status = $1';
-      categoriesResult = await pool.query(categoriesQuery, ['active']);
-      totalCategories = parseInt(categoriesResult.rows[0].count, 10);
-    }
 
     // Get total locations
     const locationsQuery = 'SELECT COUNT(*) as count FROM locations';
@@ -113,7 +97,6 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
     const pendingPurchaseOrders = parseInt(pendingPurchaseOrdersResult.rows[0].count, 10);
 
     console.log('Dashboard Stats:', {
-      totalCategories,
       totalLocations,
       totalAvailableRfid,
       totalVendors,
@@ -124,7 +107,6 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
     });
 
     return {
-      totalCategories,
       totalLocations,
       totalAvailableRfid,
       totalVendors,
@@ -139,47 +121,6 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
   }
 }
 
-const getTopCategories = async (): Promise<{ labels: string[]; data: number[] }> => {
-  try {
-    // First try with status filter
-    let query = `
-      SELECT 
-        c.name,
-        COUNT(i.id) as item_count
-      FROM categories c
-      LEFT JOIN items i ON c.id = i.category_id
-      WHERE c.status = 'active'
-      GROUP BY c.id, c.name
-      ORDER BY item_count DESC
-      LIMIT 5;
-    `;
-    
-    let result = await pool.query(query);
-    
-    // If no results, try without status filter
-    if (result.rows.length === 0) {
-      query = `
-        SELECT 
-          c.name,
-          COUNT(i.id) as item_count
-        FROM categories c
-        LEFT JOIN items i ON c.id = i.category_id
-        GROUP BY c.id, c.name
-        ORDER BY item_count DESC
-        LIMIT 5;
-      `;
-      result = await pool.query(query);
-    }
-    
-    const labels = result.rows.map(row => row.name);
-    const data = result.rows.map(row => parseInt(row.item_count, 10));
-    
-    return { labels, data };
-  } catch (error) {
-    console.error('Error fetching top categories:', error);
-    return { labels: [], data: [] };
-  }
-};
 
 const getMonthlyActivity = async (): Promise<{ labels: string[]; data: number[] }> => {
   try {
@@ -215,7 +156,6 @@ const getMonthlyActivity = async (): Promise<{ labels: string[]; data: number[] 
 const getDashboardData = async (): Promise<DashboardData> => {
   try {
     const stats = await getDashboardStats();
-    const topCategories = await getTopCategories();
     const monthlyActivity = await getMonthlyActivity();
 
     // Calculate growth percentage (mock calculation for now)
@@ -223,12 +163,6 @@ const getDashboardData = async (): Promise<DashboardData> => {
 
     return {
       metrics: [
-        {
-          name: "categories",
-          value: stats.totalCategories,
-          icon: "/dashboard/assets.svg",
-          label: "Total Categories"
-        },
         {
           name: "locations",
           value: stats.totalLocations,
@@ -272,7 +206,6 @@ const getDashboardData = async (): Promise<DashboardData> => {
           label: "Pending Purchase Orders"
         }
       ],
-      topAssetCategories: topCategories,
       assetPerformance: {
         value: stats.totalItems,
         status: "Good",
@@ -292,8 +225,8 @@ const getDashboardData = async (): Promise<DashboardData> => {
         }
       },
       serviceScheduleStatus: {
-        labels: topCategories.labels.slice(0, 5),
-        data: topCategories.data.slice(0, 5).map(value => value * 0.1) // Convert to smaller values for chart
+        labels: [],
+        data: []
       },
       checkInOutActivity: {
         growth: growth,
@@ -309,6 +242,5 @@ const getDashboardData = async (): Promise<DashboardData> => {
 export const DashboardService = {
   getDashboardStats,
   getDashboardData,
-  getTopCategories,
   getMonthlyActivity,
 };

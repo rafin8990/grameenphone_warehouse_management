@@ -7,6 +7,7 @@ import pick from '../../../shared/pick';
 import sendResponse from '../../../shared/sendResponse';
 import { IPurchaseOrderWithItems } from './purchase-orders.interface';
 import { PurchaseOrderService } from './purchase-orders.service';
+import { POStatusService } from './po-status.service';
 
 // Create Purchase Order
 const createPurchaseOrder = catchAsync(async (req: Request, res: Response) => {
@@ -131,6 +132,32 @@ const quickGeneratePurchaseOrder = catchAsync(
   }
 );
 
+// Check and Update PO Status
+const checkPOStatus = catchAsync(async (req: Request, res: Response) => {
+  const { po_number } = req.params;
+  const result = await POStatusService.checkAndUpdatePOStatus(po_number);
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: `PO status checked successfully`,
+    data: result,
+  });
+});
+
+// Get PO Status Summary
+const getPOStatusSummary = catchAsync(async (req: Request, res: Response) => {
+  const { po_number } = req.params;
+  const result = await POStatusService.getPOStatusSummary(po_number);
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: `PO status summary retrieved successfully`,
+    data: result,
+  });
+});
+
 export const PurchaseOrderController = {
   createPurchaseOrder,
   getAllPurchaseOrders,
@@ -139,4 +166,6 @@ export const PurchaseOrderController = {
   deletePurchaseOrder,
   autoCreatePurchaseOrder,
   quickGeneratePurchaseOrder,
+  checkPOStatus,
+  getPOStatusSummary,
 };

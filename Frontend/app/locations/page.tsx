@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Plus, Search, Edit, Trash2, MapPin, RefreshCw, Eye } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { locationsApi, ILocation, LocationQueryParams } from '@/lib/api/locations';
+import { locationsApi, ILocation, ILocationFilters, ICreateLocation, IUpdateLocation } from '@/lib/api/locations';
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function LocationsPage() {
@@ -24,7 +24,6 @@ export default function LocationsPage() {
   const [updateLoading, setUpdateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
@@ -33,15 +32,10 @@ export default function LocationsPage() {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [editingLocation, setEditingLocation] = useState<ILocation | null>(null);
   const [viewingLocation, setViewingLocation] = useState<ILocation | null>(null);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ICreateLocation>({
+    location_name: '',
+    location_code: '',
     sub_inventory_code: '',
-    locator_code: '',
-    name: '',
-    description: '',
-    org_code: '',
-    status: 'active' as 'active' | 'inactive' | 'obsolete',
-    capacity: null as number | null,
-    attributes: {} as Record<string, any>
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const { toast } = useToast();
@@ -50,21 +44,20 @@ export default function LocationsPage() {
 
   useEffect(() => {
     fetchLocations();
-  }, [currentPage, searchTerm, statusFilter]);
+  }, [currentPage, searchTerm]);
 
   const fetchLocations = async () => {
     try {
       setLoading(true);
-      const params: LocationQueryParams = {
+      const params: ILocationFilters = {
         page: currentPage,
         limit: itemsPerPage,
         searchTerm: searchTerm || undefined,
-        status: statusFilter === 'all' ? undefined : (statusFilter as 'active' | 'inactive'),
         sortBy: 'created_at',
         sortOrder: 'desc'
       };
 
-      const response = await locationsApi.getAll(params);
+      const response = await locationsApi.getLocations(params);
       setLocations(response.data);
       if (response.meta) {
         setTotalPages(response.meta.totalPages);
@@ -88,21 +81,16 @@ export default function LocationsPage() {
       setFormErrors({});
       
       // Validation
-      if (!formData.sub_inventory_code.trim()) {
-        setFormErrors(prev => ({ ...prev, sub_inventory_code: 'Sub inventory code is required' }));
+      if (!formData.location_name.trim()) {
+        setFormErrors(prev => ({ ...prev, location_name: 'Location name is required' }));
         return;
       }
-      if (!formData.locator_code.trim()) {
-        setFormErrors(prev => ({ ...prev, locator_code: 'Locator code is required' }));
+      if (!formData.location_code.trim()) {
+        setFormErrors(prev => ({ ...prev, location_code: 'Location code is required' }));
         return;
       }
 
-      // Convert null values to undefined for API compatibility
-      const apiData = {
-        ...formData,
-        capacity: formData.capacity || undefined
-      };
-      await locationsApi.create(apiData);
+      await locationsApi.createLocation(formData);
       toast({
         title: "Success",
         description: "Location created successfully"
@@ -130,21 +118,16 @@ export default function LocationsPage() {
       setFormErrors({});
       
       // Validation
-      if (!formData.sub_inventory_code.trim()) {
-        setFormErrors(prev => ({ ...prev, sub_inventory_code: 'Sub inventory code is required' }));
+      if (!formData.location_name.trim()) {
+        setFormErrors(prev => ({ ...prev, location_name: 'Location name is required' }));
         return;
       }
-      if (!formData.locator_code.trim()) {
-        setFormErrors(prev => ({ ...prev, locator_code: 'Locator code is required' }));
+      if (!formData.location_code.trim()) {
+        setFormErrors(prev => ({ ...prev, location_code: 'Location code is required' }));
         return;
       }
 
-      // Convert null values to undefined for API compatibility
-      const apiData = {
-        ...formData,
-        capacity: formData.capacity || undefined
-      };
-      await locationsApi.update(editingLocation.id, apiData);
+      await locationsApi.updateLocation(editingLocation.id, formData);
       toast({
         title: "Success",
         description: "Location updated successfully"
@@ -167,7 +150,7 @@ export default function LocationsPage() {
   const handleDelete = async (id: number) => {
     try {
       setDeleteLoading(true);
-      await locationsApi.delete(id);
+      await locationsApi.deleteLocation(id);
       toast({
         title: "Success",
         description: "Location deleted successfully"
@@ -193,28 +176,18 @@ export default function LocationsPage() {
   const handleEdit = (location: ILocation) => {
     setEditingLocation(location);
     setFormData({
-      sub_inventory_code: location.sub_inventory_code,
-      locator_code: location.locator_code,
-      name: location.name || '',
-      description: location.description || '',
-      org_code: location.org_code || '',
-      status: location.status as 'active' | 'inactive' | 'obsolete',
-      capacity: location.capacity || null,
-      attributes: location.attributes || {}
+      location_name: location.location_name,
+      location_code: location.location_code,
+      sub_inventory_code: location.sub_inventory_code || '',
     });
     setIsEditDialogOpen(true);
   };
 
   const resetForm = () => {
     setFormData({
+      location_name: '',
+      location_code: '',
       sub_inventory_code: '',
-      locator_code: '',
-      name: '',
-      description: '',
-      org_code: '',
-      status: 'active',
-      capacity: null,
-      attributes: {}
     });
     setFormErrors({});
     setEditingLocation(null);
@@ -227,7 +200,6 @@ export default function LocationsPage() {
 
   const handleReset = () => {
     setSearchTerm('');
-    setStatusFilter('all');
     setCurrentPage(1);
   };
 
@@ -281,20 +253,6 @@ export default function LocationsPage() {
                     </Button>
                   </div>
                 </div>
-                <div className="w-40">
-                  <Label htmlFor="status">Status</Label>
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="inactive">Inactive</SelectItem>
-                      <SelectItem value="obsolete">Obsolete</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
               <div className="flex gap-2">
                 <Button  onClick={handleReset} >
@@ -317,77 +275,34 @@ export default function LocationsPage() {
                     </DialogHeader>
                     <div className="space-y-4">
                       <div>
-                        <Label htmlFor="sub_inventory_code">Sub Inventory Code *</Label>
+                        <Label htmlFor="location_name">Location Name *</Label>
+                        <Input
+                          id="location_name"
+                          value={formData.location_name}
+                          onChange={(e) => setFormData(prev => ({ ...prev, location_name: e.target.value }))}
+                          placeholder="Enter location name"
+                          className={formErrors.location_name ? "border-red-500" : ""}
+                        />
+                        {formErrors.location_name && <p className="text-sm text-red-500 mt-1">{formErrors.location_name}</p>}
+                      </div>
+                      <div>
+                        <Label htmlFor="location_code">Location Code *</Label>
+                        <Input
+                          id="location_code"
+                          value={formData.location_code}
+                          onChange={(e) => setFormData(prev => ({ ...prev, location_code: e.target.value }))}
+                          placeholder="Enter location code"
+                          className={formErrors.location_code ? "border-red-500" : ""}
+                        />
+                        {formErrors.location_code && <p className="text-sm text-red-500 mt-1">{formErrors.location_code}</p>}
+                      </div>
+                      <div>
+                        <Label htmlFor="sub_inventory_code">Sub Inventory Code</Label>
                         <Input
                           id="sub_inventory_code"
                           value={formData.sub_inventory_code}
                           onChange={(e) => setFormData(prev => ({ ...prev, sub_inventory_code: e.target.value }))}
                           placeholder="Enter sub inventory code"
-                          className={formErrors.sub_inventory_code ? "border-red-500" : ""}
-                        />
-                        {formErrors.sub_inventory_code && <p className="text-sm text-red-500 mt-1">{formErrors.sub_inventory_code}</p>}
-                      </div>
-                      <div>
-                        <Label htmlFor="locator_code">Locator Code *</Label>
-                        <Input
-                          id="locator_code"
-                          value={formData.locator_code}
-                          onChange={(e) => setFormData(prev => ({ ...prev, locator_code: e.target.value }))}
-                          placeholder="Enter locator code"
-                          className={formErrors.locator_code ? "border-red-500" : ""}
-                        />
-                        {formErrors.locator_code && <p className="text-sm text-red-500 mt-1">{formErrors.locator_code}</p>}
-                      </div>
-                      <div>
-                        <Label htmlFor="name">Name</Label>
-                        <Input
-                          id="name"
-                          value={formData.name}
-                          onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                          placeholder="Enter location name"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="description">Description</Label>
-                        <Textarea
-                          id="description"
-                          value={formData.description}
-                          onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                          placeholder="Enter location description"
-                          rows={3}
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="org_code">Organization Code</Label>
-                        <Input
-                          id="org_code"
-                          value={formData.org_code}
-                          onChange={(e) => setFormData(prev => ({ ...prev, org_code: e.target.value }))}
-                          placeholder="Enter organization code"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="status">Status</Label>
-                        <Select value={formData.status} onValueChange={(value: 'active' | 'inactive' | 'obsolete') => setFormData(prev => ({ ...prev, status: value }))}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="inactive">Inactive</SelectItem>
-                            <SelectItem value="obsolete">Obsolete</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="capacity">Capacity</Label>
-                        <Input
-                          id="capacity"
-                          type="number"
-                          value={formData.capacity || ''}
-                          onChange={(e) => setFormData(prev => ({ ...prev, capacity: e.target.value ? Number(e.target.value) : null }))}
-                          placeholder="Enter capacity"
-                          min="0"
                         />
                       </div>
                     </div>
@@ -438,13 +353,9 @@ export default function LocationsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>Location Name</TableHead>
+                      <TableHead>Location Code</TableHead>
                       <TableHead>Sub Inventory Code</TableHead>
-                      <TableHead>Locator Code</TableHead>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Description</TableHead>
-                      <TableHead>Organization</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Capacity</TableHead>
                       <TableHead>Created</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -452,24 +363,14 @@ export default function LocationsPage() {
                   <TableBody>
                     {locations.map((location) => (
                       <TableRow key={location.id}>
-                        <TableCell className="font-mono text-sm">{location.sub_inventory_code}</TableCell>
-                        <TableCell className="font-mono text-sm">{location.locator_code}</TableCell>
-                        <TableCell className="font-medium">{location.name || '-'}</TableCell>
-                        <TableCell className="max-w-xs truncate">
-                          {location.description || '-'}
+                        <TableCell className="font-medium">{location.location_name}</TableCell>
+                        <TableCell className="font-mono text-sm">
+                          <Badge variant="outline">{location.location_code}</Badge>
                         </TableCell>
                         <TableCell className="font-mono text-sm">
-                          {location.org_code || '-'}
+                          {location.sub_inventory_code || '-'}
                         </TableCell>
-                        <TableCell>
-                          <Badge>
-                            {location.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {location.capacity ? location.capacity.toLocaleString() : '-'}
-                        </TableCell>
-                        <TableCell>{formatDate(location.created_at!)}</TableCell>
+                        <TableCell>{formatDate(location.created_at)}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
                             <Button
@@ -492,7 +393,7 @@ export default function LocationsPage() {
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Delete Location</AlertDialogTitle>
                                   <AlertDialogDescription>
-                                    Are you sure you want to delete "{location.name || location.locator_code}"? This action cannot be undone.
+                                    Are you sure you want to delete "{location.location_name}"? This action cannot be undone.
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
@@ -559,77 +460,34 @@ export default function LocationsPage() {
             </DialogHeader>
             <div className="space-y-4">
               <div>
-                <Label htmlFor="edit-sub-inventory-code">Sub Inventory Code *</Label>
+                <Label htmlFor="edit-location-name">Location Name *</Label>
+                <Input
+                  id="edit-location-name"
+                  value={formData.location_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, location_name: e.target.value }))}
+                  placeholder="Enter location name"
+                  className={formErrors.location_name ? "border-red-500" : ""}
+                />
+                {formErrors.location_name && <p className="text-sm text-red-500 mt-1">{formErrors.location_name}</p>}
+              </div>
+              <div>
+                <Label htmlFor="edit-location-code">Location Code *</Label>
+                <Input
+                  id="edit-location-code"
+                  value={formData.location_code}
+                  onChange={(e) => setFormData(prev => ({ ...prev, location_code: e.target.value }))}
+                  placeholder="Enter location code"
+                  className={formErrors.location_code ? "border-red-500" : ""}
+                />
+                {formErrors.location_code && <p className="text-sm text-red-500 mt-1">{formErrors.location_code}</p>}
+              </div>
+              <div>
+                <Label htmlFor="edit-sub-inventory-code">Sub Inventory Code</Label>
                 <Input
                   id="edit-sub-inventory-code"
                   value={formData.sub_inventory_code}
                   onChange={(e) => setFormData(prev => ({ ...prev, sub_inventory_code: e.target.value }))}
                   placeholder="Enter sub inventory code"
-                  className={formErrors.sub_inventory_code ? "border-red-500" : ""}
-                />
-                {formErrors.sub_inventory_code && <p className="text-sm text-red-500 mt-1">{formErrors.sub_inventory_code}</p>}
-              </div>
-              <div>
-                <Label htmlFor="edit-locator-code">Locator Code *</Label>
-                <Input
-                  id="edit-locator-code"
-                  value={formData.locator_code}
-                  onChange={(e) => setFormData(prev => ({ ...prev, locator_code: e.target.value }))}
-                  placeholder="Enter locator code"
-                  className={formErrors.locator_code ? "border-red-500" : ""}
-                />
-                {formErrors.locator_code && <p className="text-sm text-red-500 mt-1">{formErrors.locator_code}</p>}
-              </div>
-              <div>
-                <Label htmlFor="edit-name">Name</Label>
-                <Input
-                  id="edit-name"
-                  value={formData.name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="Enter location name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-description">Description</Label>
-                <Textarea
-                  id="edit-description"
-                  value={formData.description}
-                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  placeholder="Enter location description"
-                  rows={3}
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-org-code">Organization Code</Label>
-                <Input
-                  id="edit-org-code"
-                  value={formData.org_code}
-                  onChange={(e) => setFormData(prev => ({ ...prev, org_code: e.target.value }))}
-                  placeholder="Enter organization code"
-                />
-              </div>
-              <div>
-                <Label htmlFor="edit-status">Status</Label>
-                <Select value={formData.status} onValueChange={(value: 'active' | 'inactive' | 'obsolete') => setFormData(prev => ({ ...prev, status: value }))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="inactive">Inactive</SelectItem>
-                    <SelectItem value="obsolete">Obsolete</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label htmlFor="edit-capacity">Capacity</Label>
-                <Input
-                  id="edit-capacity"
-                  type="number"
-                  value={formData.capacity || ''}
-                  onChange={(e) => setFormData(prev => ({ ...prev, capacity: e.target.value ? Number(e.target.value) : null }))}
-                  placeholder="Enter capacity"
-                  min="0"
                 />
               </div>
             </div>
@@ -666,47 +524,23 @@ export default function LocationsPage() {
             {viewingLocation && (
               <div className="space-y-4">
                 <div>
+                  <Label className="text-sm font-medium text-gray-500">Location Name</Label>
+                  <p className="text-sm bg-gray-50 p-2 rounded border">{viewingLocation.location_name}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Location Code</Label>
+                  <p className="text-sm font-mono bg-gray-50 p-2 rounded border">{viewingLocation.location_code}</p>
+                </div>
+                <div>
                   <Label className="text-sm font-medium text-gray-500">Sub Inventory Code</Label>
-                  <p className="text-sm font-mono bg-gray-50 p-2 rounded border">{viewingLocation.sub_inventory_code}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Locator Code</Label>
-                  <p className="text-sm font-mono bg-gray-50 p-2 rounded border">{viewingLocation.locator_code}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Name</Label>
-                  <p className="text-sm bg-gray-50 p-2 rounded border">
-                    {viewingLocation.name || 'Not specified'}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Description</Label>
-                  <p className="text-sm bg-gray-50 p-2 rounded border">
-                    {viewingLocation.description || 'No description provided'}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Organization Code</Label>
                   <p className="text-sm font-mono bg-gray-50 p-2 rounded border">
-                    {viewingLocation.org_code || 'Not specified'}
-                  </p>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Status</Label>
-                  <Badge>
-                    {viewingLocation.status}
-                  </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium text-gray-500">Capacity</Label>
-                  <p className="text-sm bg-gray-50 p-2 rounded border">
-                    {viewingLocation.capacity ? viewingLocation.capacity.toLocaleString() : 'Not specified'}
+                    {viewingLocation.sub_inventory_code || 'Not specified'}
                   </p>
                 </div>
                 <div>
                   <Label className="text-sm font-medium text-gray-500">Created</Label>
                   <p className="text-sm bg-gray-50 p-2 rounded border">
-                    {formatDate(viewingLocation.created_at!)}
+                    {formatDate(viewingLocation.created_at)}
                   </p>
                 </div>
                 {viewingLocation.updated_at && (

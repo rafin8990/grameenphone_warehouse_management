@@ -14,6 +14,7 @@ interface IScanEvent {
   item_description: string;
   quantity: number;  // Total aggregated quantity
   scanned_quantity?: number;  // Quantity from this scan
+  ordered_quantity: number;  // Original ordered quantity from purchase order
   lot_no: string;
   timestamp: string;
   epc: string;
@@ -123,11 +124,28 @@ export default function WarehouseGatePage() {
                   <p className="text-lg font-semibold font-mono">{lastScan.item_number}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-600 mb-1">Total Quantity</p>
-                  <p className="text-2xl font-bold text-green-600">{lastScan.quantity.toLocaleString()}</p>
+                  <p className="text-xs text-gray-600 mb-1">Received / Ordered</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-2xl font-bold text-green-600">{lastScan.quantity.toLocaleString()}</p>
+                    <span className="text-gray-400">/</span>
+                    <p className="text-xl font-semibold text-blue-600">{lastScan.ordered_quantity.toLocaleString()}</p>
+                  </div>
                   {lastScan.scanned_quantity && (
                     <p className="text-xs text-gray-500">+{lastScan.scanned_quantity} this scan</p>
                   )}
+                  <div className="mt-2">
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-green-500 h-2 rounded-full transition-all duration-300" 
+                        style={{ 
+                          width: `${Math.min((lastScan.quantity / lastScan.ordered_quantity) * 100, 100)}%` 
+                        }}
+                      ></div>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {Math.round((lastScan.quantity / lastScan.ordered_quantity) * 100)}% complete
+                    </p>
+                  </div>
                 </div>
                 <div>
                   <p className="text-xs text-gray-600 mb-1">Time</p>
@@ -179,8 +197,12 @@ export default function WarehouseGatePage() {
                         <p className="font-mono text-sm">{scan.item_number}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-gray-500">Quantity</p>
-                        <p className="text-lg font-bold text-green-600">{scan.quantity.toLocaleString()}</p>
+                        <p className="text-xs text-gray-500">Received / Ordered</p>
+                        <div className="flex items-center gap-1">
+                          <p className="text-lg font-bold text-green-600">{scan.quantity.toLocaleString()}</p>
+                          <span className="text-gray-400">/</span>
+                          <p className="text-sm font-semibold text-blue-600">{scan.ordered_quantity.toLocaleString()}</p>
+                        </div>
                       </div>
                       <div>
                         <p className="text-xs text-gray-500">Lot No</p>

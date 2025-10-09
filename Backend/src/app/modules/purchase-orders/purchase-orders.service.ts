@@ -176,8 +176,10 @@ const getAllPurchaseOrders = async (
     'po_description',
     'supplier_name',
     'po_type',
+    'status',
     'created_at',
     'updated_at',
+    'received_at',
   ];
 
   const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
@@ -190,13 +192,15 @@ const getAllPurchaseOrders = async (
       po.po_description,
       po.supplier_name,
       po.po_type,
+      po.status,
       po.created_at,
       po.updated_at,
+      po.received_at,
       COUNT(pi.id)::int as items_count
     FROM purchase_orders po
     LEFT JOIN po_items pi ON po.id = pi.po_id
     ${whereClause}
-    GROUP BY po.id
+    GROUP BY po.id, po.status, po.received_at
     ORDER BY po.${safeSortBy} ${safeSortOrder}
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
   `;

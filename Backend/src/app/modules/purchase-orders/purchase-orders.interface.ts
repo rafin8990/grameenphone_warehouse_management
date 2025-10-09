@@ -4,8 +4,10 @@ export type IPurchaseOrder = {
   po_description?: string | null;
   supplier_name: string;
   po_type?: string | null;
+  status?: 'pending' | 'partial' | 'received' | 'cancelled';
   created_at?: Date;
   updated_at?: Date;
+  received_at?: Date | null;
 };
 
 export type IPoItem = {

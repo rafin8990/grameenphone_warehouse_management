@@ -53,4 +53,10 @@ router.delete(
   PurchaseOrderController.deletePurchaseOrder
 );
 
+// Check and update PO status
+router.post('/:po_number/check-status', PurchaseOrderController.checkPOStatus);
+
+// Get PO status summary
+router.get('/:po_number/status-summary', PurchaseOrderController.getPOStatusSummary);
+
 export const PurchaseOrderRoutes = router;

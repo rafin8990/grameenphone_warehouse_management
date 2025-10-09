@@ -5,6 +5,9 @@ import { IGenericResponse } from '../../../interfaces/common';
 import { IPaginationOptions } from '../../../interfaces/pagination';
 import pool from '../../../utils/dbClient';
 import { IInbound, IInboundFilters, IInboundItem, IRfidScanData } from './inbound.interface';
+import { LocationTrackerService } from '../location-trackers/location-trackers.service';
+import { StockService } from '../stock/stock.service';
+import { POStatusService } from '../purchase-orders/po-status.service';
 
 // Get socket instance dynamically to avoid import issues
 const getSocketInstance = () => {
@@ -45,23 +48,27 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     const { po_number, lot_no, item_number, quantity } = hexCodeData;
     console.log('✅ Hex code found:', { po_number, lot_no, item_number, quantity });
 
-    // Step 2: Get item description from items table
+    // Step 2: Get item description and original ordered quantity
     const itemQuery = `
-      SELECT item_description
-      FROM items
-      WHERE item_number = $1;
+      SELECT 
+        i.item_description,
+        pi.quantity as ordered_quantity
+      FROM items i
+      INNER JOIN po_items pi ON i.item_number = pi.item_number
+      INNER JOIN purchase_orders po ON pi.po_id = po.id
+      WHERE i.item_number = $1 AND po.po_number = $2;
     `;
-    const itemResult = await client.query(itemQuery, [item_number]);
+    const itemResult = await client.query(itemQuery, [item_number, po_number]);
 
     if (itemResult.rows.length === 0) {
       throw new ApiError(
         httpStatus.NOT_FOUND,
-        `Item "${item_number}" not found in items table`
+        `Item "${item_number}" not found in items table or not part of PO "${po_number}"`
       );
     }
 
-    const item_description = itemResult.rows[0].item_description || '';
-    console.log('✅ Item found:', { item_number, item_description });
+    const { item_description, ordered_quantity } = itemResult.rows[0];
+    console.log('✅ Item found:', { item_number, item_description, ordered_quantity });
 
     // Step 3: Create processed_epcs table if it doesn't exist
     await client.query(`
@@ -111,6 +118,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
               item_description,
               quantity: existingItem ? existingItem.quantity : Number(quantity),
               scanned_quantity: Number(quantity),
+              ordered_quantity: Number(ordered_quantity),
               lot_no,
               timestamp: new Date().toISOString(),
               epc: scanData.epc,
@@ -248,6 +256,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
           item_description,
           quantity: displayQuantity,  // Use aggregated quantity
           scanned_quantity: Number(quantity),  // Original scan quantity
+          ordered_quantity: Number(ordered_quantity),  // Original ordered quantity
           lot_no,
           timestamp: new Date().toISOString(),
           epc: scanData.epc,
@@ -259,6 +268,82 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     } catch (socketError) {
       console.error('Socket emit error (non-critical):', socketError);
       // Don't throw - socket error shouldn't break the main flow
+    }
+
+    // Location Tracking Logic - NEW FEATURE
+    if (scanData.deviceId) {
+      try {
+        console.log(`🏢 Processing location tracking for device: ${scanData.deviceId}`);
+        
+        // Find location by device ID (assuming deviceId maps to location_code)
+        const locationQuery = `
+          SELECT location_code, location_name
+          FROM locations
+          WHERE location_code = $1;
+        `;
+        const locationResult = await client.query(locationQuery, [scanData.deviceId]);
+        
+        if (locationResult.rows.length > 0) {
+          const { location_code, location_name } = locationResult.rows[0];
+          console.log(`📍 Location found: ${location_name} (${location_code})`);
+          
+          // Create location tracker record
+          const trackerData = {
+            location_code,
+            po_number,
+            item_number,
+            quantity: Number(quantity),
+            status: 'in' as const, // Default status, will be toggled by service if needed
+          };
+          
+          const trackerRecord = await LocationTrackerService.createLocationTracker(trackerData);
+          console.log(`📊 Location tracker created: ${trackerRecord.status} at ${location_code}`);
+          
+        } else {
+          console.log(`⚠️ Location not found for device ID: ${scanData.deviceId}`);
+        }
+      } catch (locationError) {
+        console.error('Location tracking error (non-critical):', locationError);
+        // Don't throw - location tracking error shouldn't break the main inbound flow
+      }
+    } else {
+      console.log('⚠️ No device ID provided, skipping location tracking');
+    }
+
+    // Stock Update Logic - NEW FEATURE
+    try {
+      console.log(`📦 Updating stock for: ${po_number} - ${item_number} (${lot_no})`);
+      
+      const stockData = {
+        po_number,
+        item_number,
+        lot_no,
+        quantity: Number(quantity)
+      };
+      
+      const stockRecord = await StockService.updateStock(stockData);
+      console.log(`✅ Stock updated: ${stockRecord.quantity} units of ${item_number} (${lot_no})`);
+      
+    } catch (stockError) {
+      console.error('Stock update error (non-critical):', stockError);
+      // Don't throw - stock update error shouldn't break the main inbound flow
+    }
+
+    // PO Status Check - NEW FEATURE
+    try {
+      console.log(`📋 Checking PO status for: ${po_number}`);
+      
+      const poStatusResult = await POStatusService.checkAndUpdatePOStatus(po_number);
+      
+      if (poStatusResult.isUpdated) {
+        console.log(`✅ PO ${po_number} status updated to: ${poStatusResult.status}`);
+      } else {
+        console.log(`ℹ️ PO ${po_number} status unchanged: ${poStatusResult.status}`);
+      }
+      
+    } catch (poStatusError) {
+      console.error('PO status check error (non-critical):', poStatusError);
+      // Don't throw - PO status check error shouldn't break the main inbound flow
     }
 
     return inboundRecord;
