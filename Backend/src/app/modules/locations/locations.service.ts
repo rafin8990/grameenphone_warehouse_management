@@ -35,14 +35,6 @@ const getAllLocations = async (
 ): Promise<IGenericResponse<ILocation[]>> => {
   const { searchTerm, ...filterFields } = filters;
 
-  const {
-    page,
-    limit,
-    skip,
-    sortBy = 'created_at',
-    sortOrder = 'desc',
-  } = paginationHelpers.calculatePagination(paginationOptions);
-
   const conditions: string[] = [];
   const values: any[] = [];
   let paramIndex = 1;
@@ -68,18 +60,6 @@ const getAllLocations = async (
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const allowedSortFields = [
-    'id',
-    'location_name',
-    'location_code',
-    'sub_inventory_code',
-    'created_at',
-    'updated_at',
-  ];
-
-  const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
-  const safeSortOrder = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
-
   const query = `
     SELECT 
       id,
@@ -90,34 +70,16 @@ const getAllLocations = async (
       updated_at
     FROM locations
     ${whereClause}
-    ORDER BY ${safeSortBy} ${safeSortOrder}
-    LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
+    ORDER BY created_at DESC;
   `;
-
-  values.push(limit, skip);
 
   const result = await pool.query(query, values);
 
-  // Get total count
-  const countQuery = `SELECT COUNT(*) FROM locations ${whereClause};`;
-  const countResult = await pool.query(
-    countQuery,
-    values.slice(0, paramIndex - 1)
-  );
-  const total = parseInt(countResult.rows[0].count, 10);
-
   return {
-    meta: {
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-      hasNext: page < Math.ceil(total / limit),
-      hasPrev: page > 1,
-    },
     data: result.rows,
   };
 };
+
 
 const getSingleLocation = async (id: number): Promise<ILocation | null> => {
   const query = `

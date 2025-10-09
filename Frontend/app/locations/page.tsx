@@ -24,9 +24,6 @@ export default function LocationsPage() {
   const [updateLoading, setUpdateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalItems, setTotalItems] = useState(0);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
@@ -40,29 +37,26 @@ export default function LocationsPage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const { toast } = useToast();
 
-  const itemsPerPage = 10;
+  // Check if form is valid for create
+  const isCreateFormValid = formData.location_name.trim() && formData.location_code.trim();
 
   useEffect(() => {
+    console.log('useEffect triggered with searchTerm:', searchTerm);
     fetchLocations();
-  }, [currentPage, searchTerm]);
+  }, [searchTerm]);
 
   const fetchLocations = async () => {
     try {
+      console.log('fetchLocations called');
       setLoading(true);
       const params: ILocationFilters = {
-        page: currentPage,
-        limit: itemsPerPage,
         searchTerm: searchTerm || undefined,
-        sortBy: 'created_at',
-        sortOrder: 'desc'
       };
 
+      console.log('Calling API with params:', params);
       const response = await locationsApi.getLocations(params);
+      console.log('API response:', response);
       setLocations(response.data);
-      if (response.meta) {
-        setTotalPages(response.meta.totalPages);
-        setTotalItems(response.meta.total);
-      }
     } catch (error) {
       console.error('Error fetching locations:', error);
       toast({
@@ -76,21 +70,25 @@ export default function LocationsPage() {
   };
 
   const handleCreate = async () => {
+    // Early validation - if form is not valid, don't proceed
+    if (!isCreateFormValid) {
+      setFormErrors({
+        location_name: !formData.location_name.trim() ? 'Location name is required' : '',
+        location_code: !formData.location_code.trim() ? 'Location code is required' : ''
+      });
+      return;
+    }
+
     try {
       setCreateLoading(true);
       setFormErrors({});
       
-      // Validation
-      if (!formData.location_name.trim()) {
-        setFormErrors(prev => ({ ...prev, location_name: 'Location name is required' }));
-        return;
-      }
-      if (!formData.location_code.trim()) {
-        setFormErrors(prev => ({ ...prev, location_code: 'Location code is required' }));
-        return;
-      }
-
-      await locationsApi.createLocation(formData);
+      console.log('Creating location with data:', formData);
+      console.log('Validation passed, calling API...');
+      
+      const result = await locationsApi.createLocation(formData);
+      console.log('API response:', result);
+      
       toast({
         title: "Success",
         description: "Location created successfully"
@@ -100,6 +98,11 @@ export default function LocationsPage() {
       fetchLocations();
     } catch (error: any) {
       console.error('Error creating location:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
       toast({
         title: "Error",
         description: error.response?.data?.message || "Failed to create location",
@@ -191,16 +194,16 @@ export default function LocationsPage() {
     });
     setFormErrors({});
     setEditingLocation(null);
+    setCreateLoading(false);
+    setUpdateLoading(false);
   };
 
   const handleSearch = () => {
-    setCurrentPage(1);
     fetchLocations();
   };
 
   const handleReset = () => {
     setSearchTerm('');
-    setCurrentPage(1);
   };
 
   const formatDate = (dateString: string | Date) => {
@@ -259,7 +262,12 @@ export default function LocationsPage() {
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Reset
                 </Button>
-                <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+                <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
+                  setIsCreateDialogOpen(open);
+                  if (open) {
+                    resetForm();
+                  }
+                }}>
                   <DialogTrigger asChild>
                     <Button>
                       <Plus className="h-4 w-4 mr-2" />
@@ -273,57 +281,61 @@ export default function LocationsPage() {
                         Add a new location to organize your inventory
                       </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4">
-                      <div>
-                        <Label htmlFor="location_name">Location Name *</Label>
-                        <Input
-                          id="location_name"
-                          value={formData.location_name}
-                          onChange={(e) => setFormData(prev => ({ ...prev, location_name: e.target.value }))}
-                          placeholder="Enter location name"
-                          className={formErrors.location_name ? "border-red-500" : ""}
-                        />
-                        {formErrors.location_name && <p className="text-sm text-red-500 mt-1">{formErrors.location_name}</p>}
+                    <form onSubmit={(e) => { e.preventDefault(); handleCreate(); }}>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="location_name">Location Name *</Label>
+                          <Input
+                            id="location_name"
+                            value={formData.location_name}
+                            onChange={(e) => setFormData(prev => ({ ...prev, location_name: e.target.value }))}
+                            placeholder="Enter location name"
+                            className={formErrors.location_name ? "border-red-500" : ""}
+                            required
+                          />
+                          {formErrors.location_name && <p className="text-sm text-red-500 mt-1">{formErrors.location_name}</p>}
+                        </div>
+                        <div>
+                          <Label htmlFor="location_code">Location Code *</Label>
+                          <Input
+                            id="location_code"
+                            value={formData.location_code}
+                            onChange={(e) => setFormData(prev => ({ ...prev, location_code: e.target.value }))}
+                            placeholder="Enter location code"
+                            className={formErrors.location_code ? "border-red-500" : ""}
+                            required
+                          />
+                          {formErrors.location_code && <p className="text-sm text-red-500 mt-1">{formErrors.location_code}</p>}
+                        </div>
+                        <div>
+                          <Label htmlFor="sub_inventory_code">Sub Inventory Code</Label>
+                          <Input
+                            id="sub_inventory_code"
+                            value={formData.sub_inventory_code}
+                            onChange={(e) => setFormData(prev => ({ ...prev, sub_inventory_code: e.target.value }))}
+                            placeholder="Enter sub inventory code"
+                          />
+                        </div>
                       </div>
-                      <div>
-                        <Label htmlFor="location_code">Location Code *</Label>
-                        <Input
-                          id="location_code"
-                          value={formData.location_code}
-                          onChange={(e) => setFormData(prev => ({ ...prev, location_code: e.target.value }))}
-                          placeholder="Enter location code"
-                          className={formErrors.location_code ? "border-red-500" : ""}
-                        />
-                        {formErrors.location_code && <p className="text-sm text-red-500 mt-1">{formErrors.location_code}</p>}
-                      </div>
-                      <div>
-                        <Label htmlFor="sub_inventory_code">Sub Inventory Code</Label>
-                        <Input
-                          id="sub_inventory_code"
-                          value={formData.sub_inventory_code}
-                          onChange={(e) => setFormData(prev => ({ ...prev, sub_inventory_code: e.target.value }))}
-                          placeholder="Enter sub inventory code"
-                        />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button  onClick={() => setIsCreateDialogOpen(false)}>
-                        Cancel
-                      </Button>
-                      <Button 
-                        onClick={handleCreate}
-                        disabled={createLoading}
-                      >
-                        {createLoading ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                            Creating...
-                          </>
-                        ) : (
-                          'Create Location'
-                        )}
-                      </Button>
-                    </DialogFooter>
+                      <DialogFooter>
+                        <Button type="button" onClick={() => setIsCreateDialogOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button 
+                          type="submit"
+                          disabled={createLoading || !isCreateFormValid}
+                        >
+                          {createLoading ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                              Creating...
+                            </>
+                          ) : (
+                            'Create Location'
+                          )}
+                        </Button>
+                      </DialogFooter>
+                    </form>
                   </DialogContent>
                 </Dialog>
               </div>
@@ -334,7 +346,7 @@ export default function LocationsPage() {
         {/* Locations Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Locations ({totalItems})</CardTitle>
+            <CardTitle>Locations ({locations.length})</CardTitle>
             <CardDescription>
               Manage and organize your inventory locations
             </CardDescription>
@@ -424,28 +436,6 @@ export default function LocationsPage() {
               </div>
             )}
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-6">
-                <div className="text-sm text-gray-700">
-                  Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} results
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    disabled={currentPage === 1}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                    disabled={currentPage === totalPages}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            )}
           </CardContent>
         </Card>
 
@@ -458,57 +448,61 @@ export default function LocationsPage() {
                 Update location information
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="edit-location-name">Location Name *</Label>
-                <Input
-                  id="edit-location-name"
-                  value={formData.location_name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, location_name: e.target.value }))}
-                  placeholder="Enter location name"
-                  className={formErrors.location_name ? "border-red-500" : ""}
-                />
-                {formErrors.location_name && <p className="text-sm text-red-500 mt-1">{formErrors.location_name}</p>}
+            <form onSubmit={(e) => { e.preventDefault(); handleUpdate(); }}>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="edit-location-name">Location Name *</Label>
+                  <Input
+                    id="edit-location-name"
+                    value={formData.location_name}
+                    onChange={(e) => setFormData(prev => ({ ...prev, location_name: e.target.value }))}
+                    placeholder="Enter location name"
+                    className={formErrors.location_name ? "border-red-500" : ""}
+                    required
+                  />
+                  {formErrors.location_name && <p className="text-sm text-red-500 mt-1">{formErrors.location_name}</p>}
+                </div>
+                <div>
+                  <Label htmlFor="edit-location-code">Location Code *</Label>
+                  <Input
+                    id="edit-location-code"
+                    value={formData.location_code}
+                    onChange={(e) => setFormData(prev => ({ ...prev, location_code: e.target.value }))}
+                    placeholder="Enter location code"
+                    className={formErrors.location_code ? "border-red-500" : ""}
+                    required
+                  />
+                  {formErrors.location_code && <p className="text-sm text-red-500 mt-1">{formErrors.location_code}</p>}
+                </div>
+                <div>
+                  <Label htmlFor="edit-sub-inventory-code">Sub Inventory Code</Label>
+                  <Input
+                    id="edit-sub-inventory-code"
+                    value={formData.sub_inventory_code}
+                    onChange={(e) => setFormData(prev => ({ ...prev, sub_inventory_code: e.target.value }))}
+                    placeholder="Enter sub inventory code"
+                  />
+                </div>
               </div>
-              <div>
-                <Label htmlFor="edit-location-code">Location Code *</Label>
-                <Input
-                  id="edit-location-code"
-                  value={formData.location_code}
-                  onChange={(e) => setFormData(prev => ({ ...prev, location_code: e.target.value }))}
-                  placeholder="Enter location code"
-                  className={formErrors.location_code ? "border-red-500" : ""}
-                />
-                {formErrors.location_code && <p className="text-sm text-red-500 mt-1">{formErrors.location_code}</p>}
-              </div>
-              <div>
-                <Label htmlFor="edit-sub-inventory-code">Sub Inventory Code</Label>
-                <Input
-                  id="edit-sub-inventory-code"
-                  value={formData.sub_inventory_code}
-                  onChange={(e) => setFormData(prev => ({ ...prev, sub_inventory_code: e.target.value }))}
-                  placeholder="Enter sub inventory code"
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button  onClick={() => setIsEditDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={handleUpdate}
-                disabled={updateLoading}
-              >
-                {updateLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    Updating...
-                  </>
-                ) : (
-                  'Update Location'
-                )}
-              </Button>
-            </DialogFooter>
+              <DialogFooter>
+                <Button type="button" onClick={() => setIsEditDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit"
+                  disabled={updateLoading}
+                >
+                  {updateLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Updating...
+                    </>
+                  ) : (
+                    'Update Location'
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
           </DialogContent>
         </Dialog>
 

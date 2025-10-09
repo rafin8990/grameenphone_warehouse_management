@@ -1,8 +1,11 @@
 import axios from 'axios';
 
 // Create axios instance with base configuration
+const baseURL = 'http://localhost:5000/api/v1';
+console.log('Creating axios instance with baseURL:', baseURL);
+
 const axiosInstance = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000',
+  baseURL: baseURL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -12,6 +15,8 @@ const axiosInstance = axios.create({
 // Request interceptor
 axiosInstance.interceptors.request.use(
   (config) => {
+    console.log('Making API request to:', (config.baseURL || '') + (config.url || ''));
+    console.log('Request config:', config);
     // Add auth token if available
     const token = localStorage.getItem('authToken');
     if (token) {
@@ -20,6 +25,7 @@ axiosInstance.interceptors.request.use(
     return config;
   },
   (error) => {
+    console.error('Request interceptor error:', error);
     return Promise.reject(error);
   }
 );
@@ -27,9 +33,11 @@ axiosInstance.interceptors.request.use(
 // Response interceptor
 axiosInstance.interceptors.response.use(
   (response) => {
+    console.log('API response received:', response.status, response.data);
     return response;
   },
   (error) => {
+    console.error('API response error:', error);
     // Handle common errors
     if (error.response?.status === 401) {
       // Unauthorized - redirect to login

@@ -299,6 +299,27 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
           const trackerRecord = await LocationTrackerService.createLocationTracker(trackerData);
           console.log(`📊 Location tracker created: ${trackerRecord.status} at ${location_code}`);
           
+          // Emit location tracker socket event for live dashboard
+          try {
+            const io = getSocketInstance();
+            if (io) {
+              io.emit('location-tracker:new', {
+                id: trackerRecord.id,
+                location_code,
+                location_name,
+                po_number,
+                item_number,
+                quantity: Number(quantity),
+                status: trackerRecord.status,
+                created_at: trackerRecord.created_at,
+                timestamp: new Date().toISOString()
+              });
+              console.log(`📡 Location tracker socket event emitted for ${location_code}`);
+            }
+          } catch (socketError) {
+            console.error('Location tracker socket emit error (non-critical):', socketError);
+          }
+          
         } else {
           console.log(`⚠️ Location not found for device ID: ${scanData.deviceId}`);
         }
@@ -324,6 +345,26 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       const stockRecord = await StockService.updateStock(stockData);
       console.log(`✅ Stock updated: ${stockRecord.quantity} units of ${item_number} (${lot_no})`);
       
+      // Emit stock update socket event for live dashboard
+      try {
+        const io = getSocketInstance();
+        if (io) {
+          io.emit('stock:updated', {
+            id: stockRecord.id,
+            po_number,
+            item_number,
+            lot_no,
+            quantity: stockRecord.quantity,
+            created_at: stockRecord.created_at,
+            updated_at: stockRecord.updated_at,
+            timestamp: new Date().toISOString()
+          });
+          console.log(`📡 Stock update socket event emitted for ${item_number}`);
+        }
+      } catch (socketError) {
+        console.error('Stock update socket emit error (non-critical):', socketError);
+      }
+      
     } catch (stockError) {
       console.error('Stock update error (non-critical):', stockError);
       // Don't throw - stock update error shouldn't break the main inbound flow
@@ -337,6 +378,21 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       
       if (poStatusResult.isUpdated) {
         console.log(`✅ PO ${po_number} status updated to: ${poStatusResult.status}`);
+        
+        // Emit PO status update socket event for live dashboard
+        try {
+          const io = getSocketInstance();
+          if (io) {
+            io.emit('po:status-updated', {
+              po_number,
+              status: poStatusResult.status,
+              timestamp: new Date().toISOString()
+            });
+            console.log(`📡 PO status update socket event emitted for ${po_number}`);
+          }
+        } catch (socketError) {
+          console.error('PO status socket emit error (non-critical):', socketError);
+        }
       } else {
         console.log(`ℹ️ PO ${po_number} status unchanged: ${poStatusResult.status}`);
       }

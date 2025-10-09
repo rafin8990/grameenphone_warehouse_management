@@ -1,4 +1,4 @@
-import { axiosInstance } from '../axios';
+import axiosInstance from '../axios';
 
 export interface ILocation {
   id: number;
@@ -36,14 +36,6 @@ export interface ILocationResponse {
   success: boolean;
   message: string;
   data: ILocation[];
-  meta: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-    hasNext: boolean;
-    hasPrev: boolean;
-  };
 }
 
 export interface ILocationStats {
@@ -54,6 +46,8 @@ export interface ILocationStats {
 export const locationsApi = {
   // Get all locations with filters and pagination
   getLocations: async (filters: ILocationFilters = {}): Promise<ILocationResponse> => {
+    console.log('locationsApi.getLocations called with filters:', filters);
+    console.log('axiosInstance baseURL:', axiosInstance.defaults.baseURL);
     const response = await axiosInstance.get('/locations', { params: filters });
     return response.data;
   },
@@ -66,6 +60,8 @@ export const locationsApi = {
 
   // Create new location
   createLocation: async (data: ICreateLocation): Promise<{ success: boolean; message: string; data: ILocation }> => {
+    console.log('locationsApi.createLocation called with data:', data);
+    console.log('axiosInstance baseURL:', axiosInstance.defaults.baseURL);
     const response = await axiosInstance.post('/locations', data);
     return response.data;
   },
