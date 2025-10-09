@@ -10,6 +10,10 @@ export const getSocket = (): Socket => {
     socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 5000,
     });
 
     socket.on('connect', () => {
@@ -18,6 +22,10 @@ export const getSocket = (): Socket => {
 
     socket.on('disconnect', () => {
       console.log('❌ Socket disconnected');
+    });
+
+    socket.on('reconnect', (attempt) => {
+      console.log('🔄 Socket reconnected, attempt:', attempt);
     });
 
     socket.on('connect_error', (error) => {

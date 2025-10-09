@@ -1,6 +1,7 @@
 import httpStatus from 'http-status';
 import pool from '../../../utils/dbClient';
 import { IGenericResponse } from '../../../interfaces/common';
+import { StockService } from '../stock/stock.service';
 
 interface DashboardStats {
   totalLocations: number;
@@ -10,6 +11,8 @@ interface DashboardStats {
   totalAvailableRequisitions: number;
   totalPurchaseOrders: number;
   pendingPurchaseOrders: number;
+  totalStockItems: number;
+  totalStockQuantity: number;
 }
 
 interface DashboardData {
@@ -53,48 +56,48 @@ interface DashboardData {
 
 const getDashboardStats = async (): Promise<DashboardStats> => {
   try {
+    // Helper function to safely get count from table
+    const getTableCount = async (query: string, params: any[] = []): Promise<number> => {
+      try {
+        const result = await pool.query(query, params);
+        return parseInt(result.rows[0].count, 10);
+      } catch (error) {
+        console.warn(`Table query failed: ${query}`, error);
+        return 0;
+      }
+    };
 
     // Get total locations
-    const locationsQuery = 'SELECT COUNT(*) as count FROM locations';
-    const locationsResult = await pool.query(locationsQuery);
-    const totalLocations = parseInt(locationsResult.rows[0].count, 10);
+    const totalLocations = await getTableCount('SELECT COUNT(*) as count FROM locations');
 
-    // Get total available RFID tags
-    const rfidQuery = 'SELECT COUNT(*) as count FROM rfid_tags WHERE status = $1';
-    const rfidResult = await pool.query(rfidQuery, ['available']);
-    const totalAvailableRfid = parseInt(rfidResult.rows[0].count, 10);
+    // Get total available RFID tags (if table exists)
+    const totalAvailableRfid = await getTableCount('SELECT COUNT(*) as count FROM rfid_tags WHERE status = $1', ['available']);
 
-    // Get total vendors (check both with and without status filter)
-    let vendorsQuery = 'SELECT COUNT(*) as count FROM vendors';
-    let vendorsResult = await pool.query(vendorsQuery);
-    let totalVendors = parseInt(vendorsResult.rows[0].count, 10);
-    
-    // If no vendors found, try with status filter
-    if (totalVendors === 0) {
-      vendorsQuery = 'SELECT COUNT(*) as count FROM vendors WHERE status = $1';
-      vendorsResult = await pool.query(vendorsQuery, ['active']);
-      totalVendors = parseInt(vendorsResult.rows[0].count, 10);
-    }
+    // Get total vendors
+    const totalVendors = await getTableCount('SELECT COUNT(*) as count FROM vendors');
 
     // Get total items
-    const itemsQuery = 'SELECT COUNT(*) as count FROM items';
-    const itemsResult = await pool.query(itemsQuery);
-    const totalItems = parseInt(itemsResult.rows[0].count, 10);
+    const totalItems = await getTableCount('SELECT COUNT(*) as count FROM items');
 
-    // Get total available requisitions (status = 'open')
-    const requisitionsQuery = 'SELECT COUNT(*) as count FROM requisitions WHERE status = $1';
-    const requisitionsResult = await pool.query(requisitionsQuery, ['open']);
-    const totalAvailableRequisitions = parseInt(requisitionsResult.rows[0].count, 10);
+    // Get total available requisitions
+    const totalAvailableRequisitions = await getTableCount('SELECT COUNT(*) as count FROM requisitions WHERE status = $1', ['open']);
 
     // Get total purchase orders
-    const purchaseOrdersQuery = 'SELECT COUNT(*) as count FROM purchase_orders';
-    const purchaseOrdersResult = await pool.query(purchaseOrdersQuery);
-    const totalPurchaseOrders = parseInt(purchaseOrdersResult.rows[0].count, 10);
+    const totalPurchaseOrders = await getTableCount('SELECT COUNT(*) as count FROM purchase_orders');
 
     // Get pending purchase orders
-    const pendingPurchaseOrdersQuery = 'SELECT COUNT(*) as count FROM purchase_orders WHERE status = $1';
-    const pendingPurchaseOrdersResult = await pool.query(pendingPurchaseOrdersQuery, ['pending']);
-    const pendingPurchaseOrders = parseInt(pendingPurchaseOrdersResult.rows[0].count, 10);
+    const pendingPurchaseOrders = await getTableCount('SELECT COUNT(*) as count FROM purchase_orders WHERE status = $1', ['pending']);
+
+    // Get live stock data
+    let totalStockItems = 0;
+    let totalStockQuantity = 0;
+    try {
+      const stockStats = await StockService.getStockStats();
+      totalStockItems = stockStats.total_items || 0;
+      totalStockQuantity = stockStats.total_quantity || 0;
+    } catch (stockError) {
+      console.warn('Failed to get stock stats:', stockError);
+    }
 
     console.log('Dashboard Stats:', {
       totalLocations,
@@ -104,6 +107,8 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
       totalAvailableRequisitions,
       totalPurchaseOrders,
       pendingPurchaseOrders,
+      totalStockItems,
+      totalStockQuantity,
     });
 
     return {
@@ -114,10 +119,23 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
       totalAvailableRequisitions,
       totalPurchaseOrders,
       pendingPurchaseOrders,
+      totalStockItems,
+      totalStockQuantity,
     };
   } catch (error) {
     console.error('Error fetching dashboard statistics:', error);
-    throw new Error('Failed to fetch dashboard statistics');
+    // Return default values instead of throwing error
+    return {
+      totalLocations: 0,
+      totalAvailableRfid: 0,
+      totalVendors: 0,
+      totalItems: 0,
+      totalAvailableRequisitions: 0,
+      totalPurchaseOrders: 0,
+      pendingPurchaseOrders: 0,
+      totalStockItems: 0,
+      totalStockQuantity: 0,
+    };
   }
 }
 
@@ -188,6 +206,18 @@ const getDashboardData = async (): Promise<DashboardData> => {
           label: "Total Items"
         },
         {
+          name: "stock_items",
+          value: stats.totalStockItems,
+          icon: "/dashboard/assets.svg",
+          label: "Live Stock Items"
+        },
+        {
+          name: "stock_quantity",
+          value: stats.totalStockQuantity,
+          icon: "/dashboard/readers.svg",
+          label: "Total Stock Quantity"
+        },
+        {
           name: "requisitions",
           value: stats.totalAvailableRequisitions,
           icon: "/dashboard/readers.svg",
@@ -207,21 +237,21 @@ const getDashboardData = async (): Promise<DashboardData> => {
         }
       ],
       assetPerformance: {
-        value: stats.totalItems,
+        value: stats.totalStockItems,
         status: "Good",
         statusIcon: "/dashboard/good.svg",
         chart: {
           labels: ["Apr", "May", "June", "July", "Aug", "Sept"],
-          data: [Math.floor(stats.totalItems * 0.3), Math.floor(stats.totalItems * 0.5), Math.floor(stats.totalItems * 0.4), Math.floor(stats.totalItems * 0.6), Math.floor(stats.totalItems * 0.8), Math.floor(stats.totalItems * 0.7)]
+          data: [Math.floor(stats.totalStockItems * 0.3), Math.floor(stats.totalStockItems * 0.5), Math.floor(stats.totalStockItems * 0.4), Math.floor(stats.totalStockItems * 0.6), Math.floor(stats.totalStockItems * 0.8), Math.floor(stats.totalStockItems * 0.7)]
         }
       },
       assetQuantity: {
-        value: stats.totalAvailableRfid,
+        value: stats.totalStockQuantity,
         status: "Good",
         statusIcon: "/dashboard/good.svg",
         chart: {
           labels: ["Apr", "May", "June", "July", "Aug", "Sept"],
-          data: [Math.floor(stats.totalAvailableRfid * 0.2), Math.floor(stats.totalAvailableRfid * 0.3), Math.floor(stats.totalAvailableRfid * 0.25), Math.floor(stats.totalAvailableRfid * 0.4), Math.floor(stats.totalAvailableRfid * 0.3), Math.floor(stats.totalAvailableRfid * 0.5)]
+          data: [Math.floor(stats.totalStockQuantity * 0.2), Math.floor(stats.totalStockQuantity * 0.3), Math.floor(stats.totalStockQuantity * 0.25), Math.floor(stats.totalStockQuantity * 0.4), Math.floor(stats.totalStockQuantity * 0.3), Math.floor(stats.totalStockQuantity * 0.5)]
         }
       },
       serviceScheduleStatus: {

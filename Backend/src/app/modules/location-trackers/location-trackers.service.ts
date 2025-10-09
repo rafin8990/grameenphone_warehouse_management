@@ -22,6 +22,14 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
   try {
     await client.query('BEGIN');
 
+    console.log('🧭 [LocationTracker] Create request received:', {
+      location_code: data.location_code,
+      po_number: data.po_number,
+      item_number: data.item_number,
+      quantity: data.quantity,
+      requested_status: data.status,
+    });
+
     // Check if location exists
     const locationCheck = await client.query(
       'SELECT location_code FROM locations WHERE location_code = $1',
@@ -35,7 +43,7 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
       );
     }
 
-    // Check for recent activity (within 30 seconds)
+    // Check last activity and toggle based on 30 seconds threshold
     const recentCheck = await client.query(`
       SELECT status, created_at 
       FROM location_tracker 
@@ -49,11 +57,12 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
     if (recentCheck.rows.length > 0) {
       const lastRecord = recentCheck.rows[0];
       const timeDiff = Date.now() - new Date(lastRecord.created_at).getTime();
-      
-      // If within 30 seconds, toggle the status
-      if (timeDiff < 30000) {
+      // If last post was 30s ago or more, toggle the status; otherwise keep requested
+      if (timeDiff >= 30000) {
         newStatus = lastRecord.status === 'in' ? 'out' : 'in';
-        console.log(`🔄 Status toggled for ${data.location_code}: ${lastRecord.status} → ${newStatus}`);
+        console.log(`🔄 Status toggled (>=30s) for ${data.location_code}: ${lastRecord.status} → ${newStatus}`);
+      } else {
+        console.log(`⏱️ Last activity <30s; keeping requested status: ${newStatus}`);
       }
     }
 
@@ -64,6 +73,7 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
       RETURNING *;
     `;
 
+    console.log('📝 [LocationTracker] Inserting row with computed status:', newStatus);
     const result = await client.query(insertQuery, [
       data.location_code,
       data.po_number,
@@ -76,10 +86,21 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
 
     const trackerRecord = result.rows[0];
 
-    // Emit live update via socket
+    console.log('✅ [LocationTracker] Insert successful:', {
+      id: trackerRecord.id,
+      location_code: trackerRecord.location_code,
+      po_number: trackerRecord.po_number,
+      item_number: trackerRecord.item_number,
+      quantity: trackerRecord.quantity,
+      status: trackerRecord.status,
+      created_at: trackerRecord.created_at,
+    });
+
+    // Emit live update via socket with human-readable text
     try {
       const io = getSocketInstance();
       if (io) {
+        const activity_text = `${trackerRecord.item_number} ${trackerRecord.status.toUpperCase()} at ${trackerRecord.location_code}`;
         io.emit('location-tracker:new-activity', {
           id: trackerRecord.id,
           location_code: trackerRecord.location_code,
@@ -88,7 +109,8 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
           quantity: trackerRecord.quantity,
           status: trackerRecord.status,
           created_at: trackerRecord.created_at,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          activity_text
         });
         console.log(`📡 Live tracker update emitted for location: ${trackerRecord.location_code}`);
       }
@@ -101,7 +123,7 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
     await client.query('ROLLBACK');
     
     if (error instanceof ApiError) throw error;
-    
+    console.error('❌ [LocationTracker] Failed to create record:', error);
     throw new ApiError(
       httpStatus.INTERNAL_SERVER_ERROR,
       'Failed to create location tracker record'

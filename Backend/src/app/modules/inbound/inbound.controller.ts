@@ -91,11 +91,23 @@ const deleteInbound = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// Unified live data endpoint
+const getUnifiedLiveData = catchAsync(async (req: Request, res: Response) => {
+  const result = await InboundService.getUnifiedLiveData();
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Unified live data retrieved successfully',
+    data: result,
+  });
+});
+
 export const InboundController = {
   processRfidScan,
   getAllInbounds,
   getSingleInbound,
   updateInbound,
   deleteInbound,
+  getUnifiedLiveData,
 };
 

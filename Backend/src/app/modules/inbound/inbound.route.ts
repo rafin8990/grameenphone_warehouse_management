@@ -19,6 +19,9 @@ router.get(
   InboundController.getAllInbounds
 );
 
+// Unified live data endpoint (define BEFORE dynamic :id route)
+router.get('/live', InboundController.getUnifiedLiveData);
+
 // Get single inbound by ID
 router.get(
   '/:id',

@@ -5,6 +5,7 @@ import { IGenericResponse } from '../../../interfaces/common';
 import { IPaginationOptions } from '../../../interfaces/pagination';
 import pool from '../../../utils/dbClient';
 import { IInbound, IInboundFilters, IInboundItem, IRfidScanData } from './inbound.interface';
+import { DashboardService } from '../dashboard/dashboard.service';
 import { LocationTrackerService } from '../location-trackers/location-trackers.service';
 import { StockService } from '../stock/stock.service';
 import { POStatusService } from '../purchase-orders/po-status.service';
@@ -88,51 +89,102 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     const epcCheckResult = await client.query(epcCheckQuery, [po_number, scanData.epc]);
 
     if (epcCheckResult.rows.length > 0) {
-      // EPC already processed - skip and return existing inbound
-      console.log(`⚠️ EPC ${scanData.epc} already processed for ${po_number} - Skipping (no quantity change)`);
+      // EPC already processed - no quantity change in inbound/stock, but DO process location tracking
+      console.log(`⚠️ EPC ${scanData.epc} already processed for ${po_number} - Skipping quantity change, proceeding with location tracking`);
       await client.query('ROLLBACK');
-      
-      // Get existing inbound record
+
+      // Fetch existing inbound (for returning consistent shape)
       const existingQuery = `SELECT * FROM inbound WHERE po_number = $1`;
       const existingResult = await pool.query(existingQuery, [po_number]);
-      
+
+      let existingInbound: any = null;
       if (existingResult.rows.length > 0) {
         const existing = existingResult.rows[0];
-        const existingInbound = {
+        existingInbound = {
           ...existing,
           items: Array.isArray(existing.items) ? existing.items : JSON.parse(existing.items),
         };
+      }
 
-        // Still emit socket event to show on dashboard (but with isDuplicate flag)
+      // Process location tracking even for duplicate EPC
+      if (scanData.deviceId) {
         try {
-          const io = getSocketInstance();
-          if (io) {
-            // Find the item in existing inbound
-            const existingItem = existingInbound.items.find(
-              (item: IInboundItem) => item.item_number === item_number
-            );
+          console.log(`🏢 [Inbound] (dup) Processing location tracking for device: ${scanData.deviceId}`);
+          const locationQuery = `
+            SELECT location_code, location_name
+            FROM locations
+            WHERE location_code = $1;
+          `;
+          const locationResult = await pool.query(locationQuery, [scanData.deviceId]);
 
-            io.emit('inbound:new-scan', {
+          if (locationResult.rows.length > 0) {
+            const { location_code, location_name } = locationResult.rows[0];
+            console.log(`📍 [Inbound] (dup) Location resolved: ${location_name} (${location_code})`);
+
+            const trackerData = {
+              location_code,
               po_number,
               item_number,
-              item_description,
-              quantity: existingItem ? existingItem.quantity : Number(quantity),
-              scanned_quantity: Number(quantity),
-              ordered_quantity: Number(ordered_quantity),
-              lot_no,
-              timestamp: new Date().toISOString(),
-              epc: scanData.epc,
-              isDuplicate: true,  // Mark as duplicate scan
-            });
-            console.log(`✅ Socket event emitted (duplicate scan) for ${po_number}`);
-          }
-        } catch (socketError) {
-          console.error('Socket emit error (non-critical):', socketError);
-        }
+              quantity: Number(quantity),
+              status: 'in' as const,
+            };
+            console.log('🧩 [Inbound] (dup) Creating LocationTracker with:', trackerData);
+            const trackerRecord = await LocationTrackerService.createLocationTracker(trackerData);
+            console.log(`📊 [Inbound] (dup) LocationTracker created: id=${trackerRecord.id}, status=${trackerRecord.status}, code=${location_code}`);
 
-        return existingInbound;
+            // Emit standardized event
+            try {
+              const io = getSocketInstance();
+              if (io) {
+                io.emit('location-tracker:new-activity', {
+                  id: trackerRecord.id,
+                  location_code,
+                  location_name,
+                  po_number,
+                  item_number,
+                  quantity: Number(quantity),
+                  status: trackerRecord.status,
+                  created_at: trackerRecord.created_at,
+                  timestamp: new Date().toISOString()
+                });
+                console.log(`📡 [Inbound] (dup) Location tracker socket event emitted for ${location_code}`);
+              }
+            } catch (socketError) {
+              console.error('[Inbound] (dup) Location tracker socket emit error (non-critical):', socketError);
+            }
+          } else {
+            console.log(`⚠️ [Inbound] (dup) Location not found for device ID: ${scanData.deviceId}`);
+          }
+        } catch (locationError) {
+          console.error('❌ [Inbound] (dup) Location tracking error (non-critical):', locationError);
+        }
+      } else {
+        console.log('⚠️ [Inbound] (dup) No device ID provided, skipping location tracking');
       }
-      return null;
+
+      // Emit a duplicate scan event for UI (no quantity change)
+      try {
+        const io = getSocketInstance();
+        if (io) {
+          io.emit('inbound:new-scan', {
+            po_number,
+            item_number,
+            item_description,
+            quantity: (existingInbound?.items?.find?.((it: any) => it.item_number === item_number)?.quantity) ?? Number(quantity),
+            scanned_quantity: Number(quantity),
+            ordered_quantity: Number(ordered_quantity),
+            lot_no,
+            timestamp: new Date().toISOString(),
+            epc: scanData.epc,
+            isDuplicate: true,
+          });
+          console.log(`✅ [Inbound] (dup) Socket event emitted for ${po_number}`);
+        }
+      } catch (socketError) {
+        console.error('[Inbound] (dup) Socket emit error (non-critical):', socketError);
+      }
+
+      return existingInbound;
     }
 
     // Mark this EPC as processed immediately
@@ -273,7 +325,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     // Location Tracking Logic - NEW FEATURE
     if (scanData.deviceId) {
       try {
-        console.log(`🏢 Processing location tracking for device: ${scanData.deviceId}`);
+        console.log(`🏢 [Inbound] Processing location tracking for device: ${scanData.deviceId}`);
         
         // Find location by device ID (assuming deviceId maps to location_code)
         const locationQuery = `
@@ -285,7 +337,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
         
         if (locationResult.rows.length > 0) {
           const { location_code, location_name } = locationResult.rows[0];
-          console.log(`📍 Location found: ${location_name} (${location_code})`);
+          console.log(`📍 [Inbound] Location resolved: ${location_name} (${location_code})`);
           
           // Create location tracker record
           const trackerData = {
@@ -296,14 +348,15 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
             status: 'in' as const, // Default status, will be toggled by service if needed
           };
           
+          console.log('🧩 [Inbound] Creating LocationTracker with:', trackerData);
           const trackerRecord = await LocationTrackerService.createLocationTracker(trackerData);
-          console.log(`📊 Location tracker created: ${trackerRecord.status} at ${location_code}`);
+          console.log(`📊 [Inbound] LocationTracker created: id=${trackerRecord.id}, status=${trackerRecord.status}, code=${location_code}`);
           
-          // Emit location tracker socket event for live dashboard
+          // Emit location tracker socket event for live dashboard (standardized event name)
           try {
             const io = getSocketInstance();
             if (io) {
-              io.emit('location-tracker:new', {
+              io.emit('location-tracker:new-activity', {
                 id: trackerRecord.id,
                 location_code,
                 location_name,
@@ -321,14 +374,14 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
           }
           
         } else {
-          console.log(`⚠️ Location not found for device ID: ${scanData.deviceId}`);
+          console.log(`⚠️ [Inbound] Location not found for device ID: ${scanData.deviceId}`);
         }
       } catch (locationError) {
-        console.error('Location tracking error (non-critical):', locationError);
+        console.error('❌ [Inbound] Location tracking error (non-critical):', locationError);
         // Don't throw - location tracking error shouldn't break the main inbound flow
       }
     } else {
-      console.log('⚠️ No device ID provided, skipping location tracking');
+      console.log('⚠️ [Inbound] No device ID provided, skipping location tracking');
     }
 
     // Stock Update Logic - NEW FEATURE
@@ -615,11 +668,29 @@ const deleteInbound = async (id: number): Promise<void> => {
   }
 };
 
+// Unified live data endpoint for dashboard (single source of truth)
+const getUnifiedLiveData = async () => {
+  try {
+    // Reuse existing services to aggregate consistent live data
+    const dashboardStats = await DashboardService.getDashboardStats();
+    const stockLive = await StockService.getLiveStockData();
+
+    return {
+      dashboard: dashboardStats,
+      stock: stockLive,
+      last_updated: new Date().toISOString(),
+    };
+  } catch (error) {
+    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to get unified live data');
+  }
+};
+
 export const InboundService = {
   processRfidScan,
   getAllInbounds,
   getSingleInbound,
   updateInbound,
   deleteInbound,
+  getUnifiedLiveData,
 };
 

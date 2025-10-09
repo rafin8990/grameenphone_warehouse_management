@@ -41,39 +41,41 @@ export default function DashboardPage() {
   const [isConnected, setIsConnected] = useState(false)
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+    const fetchLive = async () => {
       try {
-        const response = await fetch("http://localhost:5000/api/v1/dashboard/data")
+        const response = await fetch(`${API_BASE}/api/v1/inbound/live`)
         const result = await response.json()
-        
+
         if (result.success) {
-          setDashboardData(result.data)
+          // Map unified payload into existing dashboardData shape
+          const stats = result.data.dashboard;
+          setDashboardData({
+            metrics: [
+              { name: "locations", value: stats.totalLocations, icon: "/dashboard/floors.svg", label: "Total Locations" },
+              { name: "rfid", value: stats.totalAvailableRfid, icon: "/dashboard/readers.svg", label: "Available RFID" },
+              { name: "vendors", value: stats.totalVendors, icon: "/dashboard/vendors.svg", label: "Total Vendors" },
+              { name: "items", value: stats.totalItems, icon: "/dashboard/assets.svg", label: "Total Items" },
+              { name: "stock_items", value: stats.totalStockItems, icon: "/dashboard/assets.svg", label: "Live Stock Items" },
+              { name: "stock_quantity", value: stats.totalStockQuantity, icon: "/dashboard/readers.svg", label: "Total Stock Quantity" },
+              { name: "purchase_orders", value: stats.totalPurchaseOrders, icon: "/dashboard/vendors.svg", label: "Total Purchase Orders" },
+              { name: "pending_purchase_orders", value: stats.pendingPurchaseOrders, icon: "/dashboard/readers.svg", label: "Pending Purchase Orders" }
+            ],
+            assetPerformance: { value: stats.totalStockItems, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [1,1,1,1,1,1].map(() => Math.floor((stats.totalStockItems || 0) * 0.5)) } },
+            assetQuantity: { value: stats.totalStockQuantity, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [1,1,1,1,1,1].map(() => Math.floor((stats.totalStockQuantity || 0) * 0.5)) } },
+            serviceScheduleStatus: { labels: [], data: [] },
+            checkInOutActivity: { growth: 0, period: "Annually", chart: { labels: ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], data: new Array(12).fill(0) } }
+          })
         } else {
           throw new Error('Backend API returned unsuccessful response')
         }
       } catch (error) {
-        console.error("Error fetching dashboard data:", error)
-        setDashboardData({
-          metrics: [
-            { name: "locations", value: 0, icon: "/dashboard/floors.svg", label: "Total Locations" },
-            { name: "rfid", value: 0, icon: "/dashboard/readers.svg", label: "Available RFID" },
-            { name: "vendors", value: 0, icon: "/dashboard/vendors.svg", label: "Total Vendors" },
-            { name: "items", value: 0, icon: "/dashboard/assets.svg", label: "Total Items" },
-            { name: "requisitions", value: 0, icon: "/dashboard/readers.svg", label: "Available Requisitions" },
-            { name: "purchase_orders", value: 0, icon: "/dashboard/vendors.svg", label: "Total Purchase Orders" },
-            { name: "pending_purchase_orders", value: 0, icon: "/dashboard/readers.svg", label: "Pending Purchase Orders" }
-          ],
-          topAssetCategories: { labels: [], data: [] },
-          assetPerformance: { value: 0, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [0, 0, 0, 0, 0, 0] } },
-          assetQuantity: { value: 0, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [0, 0, 0, 0, 0, 0] } },
-          serviceScheduleStatus: { labels: [], data: [] },
-          checkInOutActivity: { growth: 0, period: "Annually", chart: { labels: ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] } }
-        })
+        console.error("Error fetching unified live data:", error)
       } finally {
         setLoading(false)
       }
     }
-    fetchDashboardData()
+    fetchLive()
   }, [])
 
   useEffect(() => {
@@ -94,14 +96,46 @@ export default function DashboardPage() {
       console.log('❌ Disconnected from dashboard');
     });
 
-    // Listen for PO status updates
-    socket.on('po:status-updated', (data) => {
-      console.log('📋 PO status update received:', data);
-    });
+    const refreshFromLive = async () => {
+      try {
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+        const response = await fetch(`${API_BASE}/api/v1/inbound/live`)
+        const result = await response.json()
+        if (result.success) {
+          const stats = result.data.dashboard;
+          setDashboardData((prev: any) => ({
+            ...(prev || {}),
+            metrics: [
+              { name: "locations", value: stats.totalLocations, icon: "/dashboard/floors.svg", label: "Total Locations" },
+              { name: "rfid", value: stats.totalAvailableRfid, icon: "/dashboard/readers.svg", label: "Available RFID" },
+              { name: "vendors", value: stats.totalVendors, icon: "/dashboard/vendors.svg", label: "Total Vendors" },
+              { name: "items", value: stats.totalItems, icon: "/dashboard/assets.svg", label: "Total Items" },
+              { name: "stock_items", value: stats.totalStockItems, icon: "/dashboard/assets.svg", label: "Live Stock Items" },
+              { name: "stock_quantity", value: stats.totalStockQuantity, icon: "/dashboard/readers.svg", label: "Total Stock Quantity" },
+              { name: "purchase_orders", value: stats.totalPurchaseOrders, icon: "/dashboard/vendors.svg", label: "Total Purchase Orders" },
+              { name: "pending_purchase_orders", value: stats.pendingPurchaseOrders, icon: "/dashboard/readers.svg", label: "Pending Purchase Orders" }
+            ],
+            assetPerformance: { value: stats.totalStockItems, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [1,1,1,1,1,1].map(() => Math.floor((stats.totalStockItems || 0) * 0.5)) } },
+            assetQuantity: { value: stats.totalStockQuantity, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [1,1,1,1,1,1].map(() => Math.floor((stats.totalStockQuantity || 0) * 0.5)) } },
+            serviceScheduleStatus: { labels: [], data: [] },
+            checkInOutActivity: { growth: 0, period: "Annually", chart: { labels: ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], data: new Array(12).fill(0) } }
+          }))
+        }
+      } catch (e) {
+        console.error('Failed to refresh live dashboard', e)
+      }
+    };
+
+    // Listen for key live events
+    socket.on('inbound:new-scan', refreshFromLive);
+    socket.on('stock:updated', refreshFromLive);
+    socket.on('po:status-updated', refreshFromLive);
 
     return () => {
       socket.off('connect');
       socket.off('disconnect');
+      socket.off('inbound:new-scan');
+      socket.off('stock:updated');
       socket.off('po:status-updated');
     };
   }, [])
@@ -136,10 +170,21 @@ export default function DashboardPage() {
           <Image src="/dashboard/litelogo.svg" alt="center" width={300} height={120} className="object-contain" />
           <Image src="/dashboard/left.svg" alt="right" width={150} height={80} className="object-contain" />
         </div>
-
-      
-
- 
+        {/* Key Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <AssetPerformanceCard
+            value={assetPerformance.value}
+            status={assetPerformance.status}
+            statusIcon={assetPerformance.statusIcon}
+            chart={assetPerformance.chart}
+          />
+          <AssetQuantityCard
+            value={assetQuantity.value}
+            status={assetQuantity.status}
+            statusIcon={assetQuantity.statusIcon}
+            chart={assetQuantity.chart}
+          />
+        </div>
 
         {/* Live Stock Dashboard */}
         <div className="mb-8">
