@@ -6,6 +6,13 @@ import validateRequest from '../../middlewares/validateRequest';
 
 const router = Router();
 
+// Process location scan (from RFID gun)
+router.post(
+  '/scan',
+  validateRequest(LocationTrackerValidation.processLocationScanZodSchema),
+  LocationTrackerController.processLocationScan
+);
+
 router.post(
   '/',
   validateRequest(LocationTrackerValidation.createLocationTrackerZodSchema),

@@ -21,19 +21,24 @@
             "label": "PO Hex Codes"
         },
         {
-            "href": "/inbound/warehouse-gate",
-            "icon": "Warehouse",
-            "label": "Inbound"
-        },
-        {
             "href": "/locations",
             "icon": "MapPin",
             "label": "Locations"
         },
         {
+            "href": "/inbound/warehouse-gate",
+            "icon": "Warehouse",
+            "label": "Inbound"
+        },
+        {
             "href": "/location-trackers",
             "icon": "Activity",
             "label": "Location Trackers"
+        },
+        {
+            "href": "/location-tracker-status",
+            "icon": "MapPin",
+            "label": "Location Tracker Status"
         },
         {
             "href": "/stock",

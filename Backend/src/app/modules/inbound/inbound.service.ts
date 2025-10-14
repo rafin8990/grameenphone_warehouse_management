@@ -47,7 +47,6 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
 
     const hexCodeData = hexCodeResult.rows[0];
     const { po_number, lot_no, item_number, quantity } = hexCodeData;
-    console.log('✅ Hex code found:', { po_number, lot_no, item_number, quantity });
 
     // Step 2: Get item description and original ordered quantity
     const itemQuery = `
@@ -69,7 +68,6 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     }
 
     const { item_description, ordered_quantity } = itemResult.rows[0];
-    console.log('✅ Item found:', { item_number, item_description, ordered_quantity });
 
     // Step 3: Create processed_epcs table if it doesn't exist
     await client.query(`
@@ -89,10 +87,6 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     const epcCheckResult = await client.query(epcCheckQuery, [po_number, scanData.epc]);
 
     if (epcCheckResult.rows.length > 0) {
-      // EPC already processed - no quantity change in inbound/stock, but DO process location tracking
-      console.log(`⚠️ EPC ${scanData.epc} already processed for ${po_number} - Skipping quantity change, proceeding with location tracking`);
-      await client.query('ROLLBACK');
-
       // Fetch existing inbound (for returning consistent shape)
       const existingQuery = `SELECT * FROM inbound WHERE po_number = $1`;
       const existingResult = await pool.query(existingQuery, [po_number]);
@@ -127,6 +121,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
               item_number,
               quantity: Number(quantity),
               status: 'in' as const,
+              epc: scanData.epc,
             };
             console.log('🧩 [Inbound] (dup) Creating LocationTracker with:', trackerData);
             const trackerRecord = await LocationTrackerService.createLocationTracker(trackerData);
@@ -144,6 +139,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
                   item_number,
                   quantity: Number(quantity),
                   status: trackerRecord.status,
+                  epc: scanData.epc,
                   created_at: trackerRecord.created_at,
                   timestamp: new Date().toISOString()
                 });
@@ -162,6 +158,54 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
         console.log('⚠️ [Inbound] (dup) No device ID provided, skipping location tracking');
       }
 
+      // Get location information for duplicate scan event
+      let locationInfo = null;
+      let defaultLocation = null;
+      
+      if (scanData.deviceId) {
+        try {
+          const locationQuery = `
+            SELECT location_code, location_name
+            FROM locations
+            WHERE location_code = $1;
+          `;
+          const locationResult = await pool.query(locationQuery, [scanData.deviceId]);
+          if (locationResult.rows.length > 0) {
+            locationInfo = locationResult.rows[0];
+          }
+        } catch (error) {
+          console.error('Error getting location info for duplicate:', error);
+        }
+      }
+      
+      // If no deviceId or location not found, use default warehouse location
+      if (!locationInfo) {
+        try {
+          const defaultLocationQuery = `
+            SELECT location_code, location_name
+            FROM locations
+            WHERE location_type = 'warehouse' AND is_active = true
+            ORDER BY created_at ASC
+            LIMIT 1;
+          `;
+          const defaultResult = await pool.query(defaultLocationQuery);
+          if (defaultResult.rows.length > 0) {
+            defaultLocation = defaultResult.rows[0];
+          } else {
+            defaultLocation = {
+              location_code: 'WAREHOUSE_MAIN',
+              location_name: 'Main Warehouse'
+            };
+          }
+        } catch (error) {
+          console.error('Error getting default location for duplicate:', error);
+          defaultLocation = {
+            location_code: 'UNKNOWN',
+            location_name: 'Unknown Location'
+          };
+        }
+      }
+
       // Emit a duplicate scan event for UI (no quantity change)
       try {
         const io = getSocketInstance();
@@ -177,8 +221,11 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
             timestamp: new Date().toISOString(),
             epc: scanData.epc,
             isDuplicate: true,
+            location_code: locationInfo?.location_code || defaultLocation?.location_code || 'UNKNOWN',
+            location_name: locationInfo?.location_name || defaultLocation?.location_name || 'Unknown Location',
+            location_status: 'in', // Default status for duplicate scans
           });
-          console.log(`✅ [Inbound] (dup) Socket event emitted for ${po_number}`);
+          console.log(`✅ [Inbound] (dup) Socket event emitted for ${po_number} - Location: ${locationInfo?.location_name || 'Unknown'}`);
         }
       } catch (socketError) {
         console.error('[Inbound] (dup) Socket emit error (non-critical):', socketError);
@@ -298,6 +345,63 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     );
     const displayQuantity = finalItemData ? finalItemData.quantity : Number(quantity);
 
+    // Get location information for the scan event
+    let locationInfo = null;
+    let defaultLocation = null;
+    
+    // Try to get location from deviceId if provided
+    if (scanData.deviceId) {
+      try {
+        const locationQuery = `
+          SELECT location_code, location_name
+          FROM locations
+          WHERE location_code = $1;
+        `;
+        const locationResult = await client.query(locationQuery, [scanData.deviceId]);
+        if (locationResult.rows.length > 0) {
+          locationInfo = locationResult.rows[0];
+        }
+      } catch (error) {
+        console.error('Error getting location info:', error);
+      }
+    }
+    
+    // If no deviceId or location not found, use default warehouse location
+    if (!locationInfo) {
+      try {
+        const defaultLocationQuery = `
+          SELECT location_code, location_name
+          FROM locations
+          WHERE location_type = 'warehouse' AND is_active = true
+          ORDER BY created_at ASC
+          LIMIT 1;
+        `;
+        const defaultResult = await client.query(defaultLocationQuery);
+        if (defaultResult.rows.length > 0) {
+          defaultLocation = defaultResult.rows[0];
+          console.log(`📍 Using default location: ${defaultLocation.location_name} (${defaultLocation.location_code})`);
+        } else {
+          // Create a default location if none exists
+          await client.query(`
+            INSERT INTO locations (location_code, location_name, location_type, is_active)
+            VALUES ('WAREHOUSE_MAIN', 'Main Warehouse', 'warehouse', true)
+            ON CONFLICT (location_code) DO NOTHING
+          `);
+          defaultLocation = {
+            location_code: 'WAREHOUSE_MAIN',
+            location_name: 'Main Warehouse'
+          };
+          console.log(`📍 Created default location: ${defaultLocation.location_name} (${defaultLocation.location_code})`);
+        }
+      } catch (error) {
+        console.error('Error getting default location:', error);
+        defaultLocation = {
+          location_code: 'UNKNOWN',
+          location_name: 'Unknown Location'
+        };
+      }
+    }
+
     // Emit socket event for live dashboard
     try {
       const io = getSocketInstance();
@@ -312,8 +416,11 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
           lot_no,
           timestamp: new Date().toISOString(),
           epc: scanData.epc,
+          location_code: locationInfo?.location_code || defaultLocation?.location_code || 'UNKNOWN',
+          location_name: locationInfo?.location_name || defaultLocation?.location_name || 'Unknown Location',
+          location_status: 'in', // Default status for new scans
         });
-        console.log(`✅ Socket event emitted for ${po_number} - Item: ${item_number}, Total Qty: ${displayQuantity}`);
+        console.log(`✅ Socket event emitted for ${po_number} - Item: ${item_number}, Total Qty: ${displayQuantity}, Location: ${locationInfo?.location_name || 'Unknown'}`);
       } else {
         console.log('⚠️ Socket.IO not available, skipping event emit');
       }
@@ -323,65 +430,64 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     }
 
     // Location Tracking Logic - NEW FEATURE
-    if (scanData.deviceId) {
+    // Use the resolved location (either from deviceId or default)
+    const finalLocation = locationInfo || defaultLocation;
+    if (finalLocation) {
       try {
-        console.log(`🏢 [Inbound] Processing location tracking for device: ${scanData.deviceId}`);
+        console.log(`🏢 [Inbound] Processing location tracking for: ${finalLocation.location_name} (${finalLocation.location_code})`);
         
-        // Find location by device ID (assuming deviceId maps to location_code)
-        const locationQuery = `
-          SELECT location_code, location_name
-          FROM locations
-          WHERE location_code = $1;
-        `;
-        const locationResult = await client.query(locationQuery, [scanData.deviceId]);
+        // Create location tracker record
+        const trackerData = {
+          location_code: finalLocation.location_code,
+          po_number,
+          item_number,
+          quantity: Number(quantity),
+          status: 'in' as const, // Default status, will be toggled by service if needed
+          epc: scanData.epc,
+        };
         
-        if (locationResult.rows.length > 0) {
-          const { location_code, location_name } = locationResult.rows[0];
-          console.log(`📍 [Inbound] Location resolved: ${location_name} (${location_code})`);
-          
-          // Create location tracker record
-          const trackerData = {
-            location_code,
-            po_number,
-            item_number,
-            quantity: Number(quantity),
-            status: 'in' as const, // Default status, will be toggled by service if needed
-          };
-          
-          console.log('🧩 [Inbound] Creating LocationTracker with:', trackerData);
-          const trackerRecord = await LocationTrackerService.createLocationTracker(trackerData);
-          console.log(`📊 [Inbound] LocationTracker created: id=${trackerRecord.id}, status=${trackerRecord.status}, code=${location_code}`);
-          
-          // Emit location tracker socket event for live dashboard (standardized event name)
-          try {
-            const io = getSocketInstance();
-            if (io) {
-              io.emit('location-tracker:new-activity', {
-                id: trackerRecord.id,
-                location_code,
-                location_name,
-                po_number,
-                item_number,
-                quantity: Number(quantity),
-                status: trackerRecord.status,
-                created_at: trackerRecord.created_at,
-                timestamp: new Date().toISOString()
-              });
-              console.log(`📡 Location tracker socket event emitted for ${location_code}`);
-            }
-          } catch (socketError) {
-            console.error('Location tracker socket emit error (non-critical):', socketError);
+        console.log('🧩 [Inbound] Creating LocationTracker with:', trackerData);
+        const trackerRecord = await LocationTrackerService.createLocationTracker(trackerData);
+        console.log(`📊 [Inbound] LocationTracker created: id=${trackerRecord.id}, status=${trackerRecord.status}, code=${finalLocation.location_code}`);
+        
+        // Emit location tracker socket event for live dashboard (standardized event name)
+        try {
+          const io = getSocketInstance();
+          if (io) {
+            io.emit('location-tracker:new-activity', {
+              id: trackerRecord.id,
+              location_code: finalLocation.location_code,
+              location_name: finalLocation.location_name,
+              po_number,
+              item_number,
+              quantity: Number(quantity),
+              status: trackerRecord.status,
+              epc: scanData.epc,
+              created_at: trackerRecord.created_at,
+              timestamp: new Date().toISOString()
+            });
+            
+            // Also update the scan event with the actual location status
+            io.emit('inbound:location-status-update', {
+              po_number,
+              item_number,
+              location_code: finalLocation.location_code,
+              location_name: finalLocation.location_name,
+              location_status: trackerRecord.status,
+              timestamp: new Date().toISOString()
+            });
+            console.log(`📡 Location tracker socket event emitted for ${finalLocation.location_code}`);
           }
-          
-        } else {
-          console.log(`⚠️ [Inbound] Location not found for device ID: ${scanData.deviceId}`);
+        } catch (socketError) {
+          console.error('Location tracker socket emit error (non-critical):', socketError);
         }
+        
       } catch (locationError) {
         console.error('❌ [Inbound] Location tracking error (non-critical):', locationError);
         // Don't throw - location tracking error shouldn't break the main inbound flow
       }
     } else {
-      console.log('⚠️ [Inbound] No device ID provided, skipping location tracking');
+      console.log('⚠️ [Inbound] No location available for tracking');
     }
 
     // Stock Update Logic - NEW FEATURE
@@ -392,7 +498,8 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
         po_number,
         item_number,
         lot_no,
-        quantity: Number(quantity)
+        quantity: Number(quantity),
+        epc: scanData.epc
       };
       
       const stockRecord = await StockService.updateStock(stockData);
@@ -408,6 +515,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
             item_number,
             lot_no,
             quantity: stockRecord.quantity,
+            epc: scanData.epc,
             created_at: stockRecord.created_at,
             updated_at: stockRecord.updated_at,
             timestamp: new Date().toISOString()
@@ -482,6 +590,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     client.release();
   }
 };
+
 
 const getAllInbounds = async (
   filters: IInboundFilters,
@@ -685,6 +794,25 @@ const getUnifiedLiveData = async () => {
   }
 };
 
+// Test location tracking
+const testLocationTracking = async (data: { location_code: string; po_number: string; item_number: string }) => {
+  try {
+    // Simple test implementation
+    return {
+      success: true,
+      message: 'Location tracking test completed',
+      data: {
+        location_code: data.location_code,
+        po_number: data.po_number,
+        item_number: data.item_number,
+        timestamp: new Date().toISOString()
+      }
+    };
+  } catch (error) {
+    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Location tracking test failed');
+  }
+};
+
 export const InboundService = {
   processRfidScan,
   getAllInbounds,
@@ -692,5 +820,6 @@ export const InboundService = {
   updateInbound,
   deleteInbound,
   getUnifiedLiveData,
+  testLocationTracking,
 };
 

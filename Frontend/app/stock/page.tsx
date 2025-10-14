@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
+import { Pagination } from '@/components/ui/pagination';
 import { Search, RefreshCw, Package, TrendingUp, Clock, Hash, Building2, Activity } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { stockApi, IStock, IStockFilters, IStockStats, IStockSummary } from '@/lib/api/stock';
@@ -32,6 +32,7 @@ export default function StockPage() {
   });
   const [stats, setStats] = useState<IStockStats | null>(null);
   const [summary, setSummary] = useState<IStockSummary[]>([]);
+  const [filteredSummary, setFilteredSummary] = useState<IStockSummary[]>([]);
   const { toast } = useToast();
 
   // Fetch stocks
@@ -74,16 +75,62 @@ export default function StockPage() {
   const fetchSummary = async () => {
     try {
       const response = await stockApi.getStockSummary();
+      console.log('📊 Stock summary data received:', response.data);
       setSummary(response.data);
+      applyFilters(response.data);
     } catch (error) {
       console.error('Failed to fetch summary:', error);
     }
+  };
+
+  // Apply filters to summary data
+  const applyFilters = (data: IStockSummary[]) => {
+    let filtered = [...data];
+    console.log('🔍 Applying filters to data:', { originalCount: data.length, filters });
+
+    // Apply search filter
+    if (filters.searchTerm) {
+      const searchTerm = filters.searchTerm.toLowerCase();
+      filtered = filtered.filter(item => 
+        item.item_number.toLowerCase().includes(searchTerm) ||
+        item.item_description.toLowerCase().includes(searchTerm)
+      );
+      console.log('🔍 After search filter:', { count: filtered.length, searchTerm });
+    }
+
+    // Apply item number filter
+    if (filters.item_number) {
+      filtered = filtered.filter(item => 
+        item.item_number.toLowerCase().includes(filters.item_number!.toLowerCase())
+      );
+      console.log('🔍 After item number filter:', { count: filtered.length, itemNumber: filters.item_number });
+    }
+
+    console.log('🔍 Final filtered data:', { count: filtered.length, items: filtered.slice(0, 3) });
+    setFilteredSummary(filtered);
+    
+    // Update pagination
+    const totalPages = Math.ceil(filtered.length / pagination.limit);
+    setPagination(prev => ({
+      ...prev,
+      total: filtered.length,
+      totalPages,
+      hasNext: pagination.page < totalPages,
+      hasPrev: pagination.page > 1,
+    }));
   };
 
   useEffect(() => {
     fetchStocks();
     fetchStats();
     fetchSummary();
+  }, []);
+
+  // Apply filters when they change
+  useEffect(() => {
+    if (summary.length > 0) {
+      applyFilters(summary);
+    }
   }, [filters]);
 
   // Socket connection for live updates
@@ -125,11 +172,11 @@ export default function StockPage() {
     setPagination(prev => ({ ...prev, page }));
   };
 
-  // Get paginated stocks
-  const getPaginatedStocks = () => {
+  // Get paginated summary items
+  const getPaginatedItems = () => {
     const startIndex = (pagination.page - 1) * pagination.limit;
     const endIndex = startIndex + pagination.limit;
-    return stocks.slice(startIndex, endIndex);
+    return filteredSummary.slice(startIndex, endIndex);
   };
 
   const formatTime = (timestamp: string) => {
@@ -155,7 +202,7 @@ export default function StockPage() {
     <PageLayout activePage="stock">
       <div className="space-y-6">
         <PageHeader
-          title="Stock Management - Live Dashboard"
+          title="Stock Management - Item Summary"
           breadcrumbItems={[
             { label: "Dashboard", href: "/dashboard" },
             { label: "Stock", href: "/stock" }
@@ -233,7 +280,7 @@ export default function StockPage() {
           </div>
         )}
 
-        {/* Filters and Actions */}
+        {/* Item Summary Table */}
         <Card>
           <CardHeader>
             <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -241,28 +288,16 @@ export default function StockPage() {
                 <div className="relative flex-1 max-w-sm">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                   <Input
-                    placeholder="Search stocks..."
+                    placeholder="Search items by ID or description..."
                     value={filters.searchTerm || ''}
                     onChange={(e) => handleSearch(e.target.value)}
                     className="pl-10"
                   />
                 </div>
                 <Input
-                  placeholder="PO Number"
-                  value={filters.po_number || ''}
-                  onChange={(e) => setFilters(prev => ({ ...prev, po_number: e.target.value }))}
-                  className="w-[150px]"
-                />
-                <Input
                   placeholder="Item Number"
                   value={filters.item_number || ''}
                   onChange={(e) => setFilters(prev => ({ ...prev, item_number: e.target.value }))}
-                  className="w-[150px]"
-                />
-                <Input
-                  placeholder="Lot Number"
-                  value={filters.lot_no || ''}
-                  onChange={(e) => setFilters(prev => ({ ...prev, lot_no: e.target.value }))}
                   className="w-[150px]"
                 />
               </div>
@@ -283,123 +318,94 @@ export default function StockPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>PO Number</TableHead>
-                      <TableHead>Item Number</TableHead>
-                      <TableHead>Lot Number</TableHead>
-                      <TableHead className="text-right">Quantity</TableHead>
-                      <TableHead>Description</TableHead>
+                      <TableHead>Item ID</TableHead>
+                      <TableHead>Item Description</TableHead>
+                      <TableHead className="text-right">Total Quantity</TableHead>
+                      <TableHead className="text-right">Lots</TableHead>
+                      <TableHead className="text-right">POs</TableHead>
                       <TableHead>Last Updated</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {getPaginatedStocks().map((stock, index) => (
-                      <TableRow 
-                        key={stock.id} 
-                        className={index === 0 ? 'bg-green-50 animate-pulse' : ''}
-                      >
-                        <TableCell className="font-mono text-sm">{stock.po_number}</TableCell>
-                        <TableCell className="font-mono text-sm">{stock.item_number}</TableCell>
-                        <TableCell className="font-mono text-sm">{stock.lot_no}</TableCell>
-                        <TableCell className="text-right font-semibold text-green-600">
-                          {stock.quantity.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="max-w-xs truncate">
-                          {stock.item_description || 'N/A'}
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <p className="font-medium">{formatTime(stock.updated_at)}</p>
-                            <p className="text-xs text-gray-500">{formatDate(stock.updated_at)}</p>
+                    {getPaginatedItems().length > 0 ? (
+                      getPaginatedItems().map((item, index) => (
+                        <TableRow 
+                          key={item.item_number} 
+                          className={index === 0 ? 'bg-green-50 animate-pulse' : ''}
+                        >
+                          <TableCell className="font-mono text-sm font-semibold">{item.item_number}</TableCell>
+                          <TableCell className="max-w-xs">
+                            <div className="truncate" title={item.item_description}>
+                              {item.item_description || 'N/A'}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-green-600 text-lg">
+                            {item.total_quantity.toLocaleString()}
+                          </TableCell>
+                          <TableCell className="text-right text-blue-600 font-medium">
+                            {item.lot_count}
+                          </TableCell>
+                          <TableCell className="text-right text-purple-600 font-medium">
+                            {item.po_count}
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <p className="font-medium">{formatTime(item.last_updated)}</p>
+                              <p className="text-xs text-gray-500">{formatDate(item.last_updated)}</p>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                          <div className="flex flex-col items-center gap-2">
+                            <Package className="h-8 w-8 text-gray-400" />
+                            <p>No stock data available</p>
+                            <p className="text-sm">Items will appear here once they are scanned and added to stock</p>
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
 
+                {/* Items per page selector */}
+                <div className="mt-4 flex justify-end items-center gap-2 text-sm text-gray-600">
+                  <span>Items per page:</span>
+                  <Select 
+                    value={pagination.limit.toString()} 
+                    onValueChange={(value) => {
+                      setPagination(prev => ({ ...prev, limit: parseInt(value), page: 1 }));
+                    }}
+                  >
+                    <SelectTrigger className="w-20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {/* Pagination */}
                 {pagination.totalPages > 1 && (
-                  <div className="mt-4">
-                    <Pagination>
-                      <PaginationContent>
-                        <PaginationItem>
-                          <PaginationPrevious
-                            onClick={() => handlePageChange(pagination.page - 1)}
-                            className={!pagination.hasPrev ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                          />
-                        </PaginationItem>
-                        
-                        {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
-                          <PaginationItem key={page}>
-                            <PaginationLink
-                              onClick={() => handlePageChange(page)}
-                              isActive={page === pagination.page}
-                              className="cursor-pointer"
-                            >
-                              {page}
-                            </PaginationLink>
-                          </PaginationItem>
-                        ))}
-                        
-                        <PaginationItem>
-                          <PaginationNext
-                            onClick={() => handlePageChange(pagination.page + 1)}
-                            className={!pagination.hasNext ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                          />
-                        </PaginationItem>
-                      </PaginationContent>
-                    </Pagination>
-                  </div>
+                  <Pagination
+                    currentPage={pagination.page}
+                    totalPages={pagination.totalPages}
+                    totalItems={pagination.total}
+                    itemsPerPage={pagination.limit}
+                    onPageChange={handlePageChange}
+                  />
                 )}
               </>
             )}
           </CardContent>
         </Card>
 
-        {/* Top Items Summary */}
-        {summary.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5" />
-                Top Items by Quantity
-              </CardTitle>
-              <CardDescription>
-                Items with highest stock quantities
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item Number</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Total Quantity</TableHead>
-                    <TableHead className="text-right">Lots</TableHead>
-                    <TableHead className="text-right">POs</TableHead>
-                    <TableHead>Last Updated</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {summary.slice(0, 10).map((item, index) => (
-                    <TableRow key={item.item_number} className={index === 0 ? 'bg-green-50' : ''}>
-                      <TableCell className="font-mono text-sm">{item.item_number}</TableCell>
-                      <TableCell className="max-w-xs truncate">{item.item_description}</TableCell>
-                      <TableCell className="text-right font-semibold text-green-600">
-                        {item.total_quantity.toLocaleString()}
-                      </TableCell>
-                      <TableCell className="text-right">{item.lot_count}</TableCell>
-                      <TableCell className="text-right">{item.po_count}</TableCell>
-                      <TableCell className="text-sm text-gray-500">
-                        {new Date(item.last_updated).toLocaleDateString()}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </PageLayout>
   );

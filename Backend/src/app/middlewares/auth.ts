@@ -1,56 +1,82 @@
-import { NextFunction, Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import httpStatus from 'http-status';
-import { Secret } from 'jsonwebtoken';
-import config from '../../config';
-import ApiError from '../../errors/ApiError';
 import { jwtHelpers } from '../../helpers/jwtHelpers';
+import config from '../../config';
+import { ITokenPayload } from '../modules/auth/auth.interface';
 
+// Extend Request interface to include user
 declare global {
   namespace Express {
     interface Request {
-      user:
-        | {
-            id: number;
-            email: string;
-            role: string;
-          }
-        | undefined;
+      user?: ITokenPayload;
     }
   }
 }
 
-const auth =
-  (...requiredRoles: string[]) =>
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const authHeader = req.headers.authorization;
-
-      if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        throw new ApiError(httpStatus.UNAUTHORIZED, 'Unauthorized access');
-      }
-
-      const token = authHeader.split(' ')[1];
-      const payload = jwtHelpers.verifyToken(
-        token,
-        config.jwt_secret as Secret
-      );
-
-      const { id, email, role } = payload as {
-        id: number;
-        email: string;
-        role: string;
-      };
-
-      req.user = { id, email, role };
-
-      if (requiredRoles.length && !requiredRoles.includes(role)) {
-        throw new ApiError(httpStatus.FORBIDDEN, 'Access denied');
-      }
-
-      next();
-    } catch (error) {
-      next(error);
+const auth = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(httpStatus.UNAUTHORIZED).json({
+        success: false,
+        message: 'Access token is required',
+      });
     }
-  };
 
-export default auth;
+    // Verify token
+    const decoded = jwtHelpers.verifyToken(token, config.jwt_secret as string);
+    
+    // Add user info to request
+    req.user = decoded as ITokenPayload;
+    
+    next();
+  } catch (error) {
+    return res.status(httpStatus.UNAUTHORIZED).json({
+      success: false,
+      message: 'Invalid or expired token',
+    });
+  }
+};
+
+const optionalAuth = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    
+    if (token) {
+      try {
+        const decoded = jwtHelpers.verifyToken(token, config.jwt_secret as string);
+        req.user = decoded as ITokenPayload;
+      } catch (error) {
+        // Token is invalid, but we continue without user info
+        req.user = undefined;
+      }
+    }
+    
+    next();
+  } catch (error) {
+    next();
+  }
+};
+
+const requireRole = (roles: string[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return res.status(httpStatus.UNAUTHORIZED).json({
+        success: false,
+        message: 'Authentication required',
+      });
+    }
+
+    if (!req.user.role || !roles.includes(req.user.role)) {
+      return res.status(httpStatus.FORBIDDEN).json({
+        success: false,
+        message: 'Insufficient permissions',
+      });
+    }
+
+    next();
+  };
+};
+
+export { auth, optionalAuth, requireRole };

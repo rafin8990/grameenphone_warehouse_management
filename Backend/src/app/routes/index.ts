@@ -7,11 +7,16 @@ import { InboundRoutes } from '../modules/inbound/inbound.route';
 import { LocationRoutes } from '../modules/locations/locations.routes';
 import { LocationTrackerRoutes } from '../modules/location-trackers/location-trackers.routes';
 import { StockRoutes } from '../modules/stock/stock.routes';
+import { AuthRoutes } from '../modules/auth/auth.routes';
 
 
 const router = express.Router();
 
 const moduleRoutes = [
+  {
+    path: '/auth',
+    routes: AuthRoutes,
+  },
   {
     path: '/dashboard',
     routes: DashboardRoutes,

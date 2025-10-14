@@ -54,6 +54,7 @@ export interface ILocationStatus {
   item_number: string;
   last_status: 'in' | 'out';
   last_updated: string;
+  location_name?: string;
 }
 
 export const locationTrackersApi = {

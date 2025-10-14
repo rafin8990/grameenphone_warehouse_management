@@ -5,6 +5,7 @@ export type ILocationTracker = {
   item_number: string;
   quantity: number;
   status: 'in' | 'out';
+  epc?: string;
   created_at?: Date;
   updated_at?: Date;
 };
@@ -17,6 +18,8 @@ export type ILocationTrackerFilters = {
   status?: 'in' | 'out';
   start_date?: string;
   end_date?: string;
+  fromDate?: string;
+  toDate?: string;
 };
 
 export type ICreateLocationTracker = Omit<ILocationTracker, 'id' | 'created_at' | 'updated_at'>;
@@ -34,4 +37,13 @@ export type ILocationStatus = {
   item_number: string;
   last_status: 'in' | 'out';
   last_updated: Date;
+  location_name?: string;
+};
+
+export type ILocationScanData = {
+  epc: string;
+  deviceId: string;
+  rssi?: string;
+  count?: number;
+  timestamp?: number;
 };

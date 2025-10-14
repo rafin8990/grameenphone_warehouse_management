@@ -4,6 +4,7 @@ import app from './app';
 import config from './config';
 import { errorlogger, logger } from './shared/logger';
 import pool from './utils/dbClient';
+import redisClient from './utils/redisClient';
 
 // Global socket instance for emitting events
 export let io: SocketIOServer;
@@ -15,8 +16,17 @@ async function bootstrap() {
     const client = await pool.connect();
     logger.info('✅ Database connected successfully');
     client.release();
+
+    // Test Redis connection
+    logger.info('🔍 Testing Redis connection...');
+    await redisClient.connect();
+    if (redisClient.isReady()) {
+      logger.info('✅ Redis connected successfully');
+    } else {
+      logger.warn('⚠️  Redis not available - continuing without Redis');
+    }
   } catch (error) {
-    logger.error('❌ Database connection failed:', error);
+    logger.error('❌ Connection failed:', error);
     process.exit(1);
   }
 
@@ -44,10 +54,13 @@ async function bootstrap() {
   logger.info('✅ Socket.IO initialized');
 
 
-  const exitHandler = () => {
+  const exitHandler = async () => {
     if (server) {
-      server.close(() => {
+      server.close(async () => {
         logger.info('Server closed');
+        // Close Redis connection
+        await redisClient.disconnect();
+        logger.info('Redis disconnected');
       });
     }
     process.exit(1);

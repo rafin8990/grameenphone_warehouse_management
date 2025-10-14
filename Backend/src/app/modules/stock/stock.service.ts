@@ -22,53 +22,123 @@ const updateStock = async (stockData: IStockUpdate): Promise<IStock> => {
 
     console.log('📦 Updating stock:', stockData);
 
-    // Check if stock record exists for same PO, item, and lot
-    const existingQuery = `
-      SELECT id, quantity 
-      FROM stocks 
-      WHERE po_number = $1 AND item_number = $2 AND lot_no = $3;
-    `;
-    const existingResult = await client.query(existingQuery, [
-      stockData.po_number,
-      stockData.item_number,
-      stockData.lot_no
-    ]);
-
     let stockRecord: IStock;
 
-    if (existingResult.rows.length > 0) {
-      // Update existing record - add to quantity
-      const existing = existingResult.rows[0];
-      const newQuantity = existing.quantity + stockData.quantity;
-
-      const updateQuery = `
-        UPDATE stocks 
-        SET quantity = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-        RETURNING *;
+    if (stockData.epc) {
+      // EPC-based stock update logic
+      // Check if exact combination exists (po_number, lot_no, item_number, epc)
+      const exactMatchQuery = `
+        SELECT id, quantity 
+        FROM stocks 
+        WHERE po_number = $1 AND item_number = $2 AND lot_no = $3 AND epc = $4;
       `;
-      
-      const updateResult = await client.query(updateQuery, [newQuantity, existing.id]);
-      stockRecord = updateResult.rows[0];
-      
-      console.log(`📈 Stock updated: ${stockData.item_number} (${stockData.lot_no}) - ${existing.quantity} → ${newQuantity}`);
-    } else {
-      // Create new record
-      const insertQuery = `
-        INSERT INTO stocks (po_number, item_number, lot_no, quantity)
-        VALUES ($1, $2, $3, $4)
-        RETURNING *;
-      `;
-      
-      const insertResult = await client.query(insertQuery, [
+      const exactMatchResult = await client.query(exactMatchQuery, [
         stockData.po_number,
         stockData.item_number,
         stockData.lot_no,
-        stockData.quantity
+        stockData.epc
       ]);
-      
-      stockRecord = insertResult.rows[0];
-      console.log(`✨ New stock record created: ${stockData.item_number} (${stockData.lot_no}) - ${stockData.quantity}`);
+
+      if (exactMatchResult.rows.length > 0) {
+        // Same EPC exists - quantity remains unchanged
+        stockRecord = exactMatchResult.rows[0];
+        console.log(`🔄 Same EPC exists - quantity unchanged: ${stockData.item_number} (${stockData.lot_no}) EPC: ${stockData.epc} - ${stockRecord.quantity}`);
+      } else {
+        // Different EPC - check if same po_number, lot_no, item_number exists
+        const sameItemQuery = `
+          SELECT id, quantity 
+          FROM stocks 
+          WHERE po_number = $1 AND item_number = $2 AND lot_no = $3;
+        `;
+        const sameItemResult = await client.query(sameItemQuery, [
+          stockData.po_number,
+          stockData.item_number,
+          stockData.lot_no
+        ]);
+
+        if (sameItemResult.rows.length > 0) {
+          // Same item exists with different EPC - add to existing quantity
+          const existing = sameItemResult.rows[0];
+          const newQuantity = existing.quantity + stockData.quantity;
+
+          const updateQuery = `
+            UPDATE stocks 
+            SET quantity = $1, epc = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $3
+            RETURNING *;
+          `;
+          
+          const updateResult = await client.query(updateQuery, [newQuantity, stockData.epc, existing.id]);
+          stockRecord = updateResult.rows[0];
+          
+          console.log(`📈 Stock updated (different EPC): ${stockData.item_number} (${stockData.lot_no}) - ${existing.quantity} → ${newQuantity} EPC: ${stockData.epc}`);
+        } else {
+          // Completely new item - create new record
+          const insertQuery = `
+            INSERT INTO stocks (po_number, item_number, lot_no, quantity, epc)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *;
+          `;
+          
+          const insertResult = await client.query(insertQuery, [
+            stockData.po_number,
+            stockData.item_number,
+            stockData.lot_no,
+            stockData.quantity,
+            stockData.epc
+          ]);
+          
+          stockRecord = insertResult.rows[0];
+          console.log(`✨ New stock record created: ${stockData.item_number} (${stockData.lot_no}) - ${stockData.quantity} EPC: ${stockData.epc}`);
+        }
+      }
+    } else {
+      // Legacy logic for non-EPC updates
+      const existingQuery = `
+        SELECT id, quantity 
+        FROM stocks 
+        WHERE po_number = $1 AND item_number = $2 AND lot_no = $3;
+      `;
+      const existingResult = await client.query(existingQuery, [
+        stockData.po_number,
+        stockData.item_number,
+        stockData.lot_no
+      ]);
+
+      if (existingResult.rows.length > 0) {
+        // Update existing record - add to quantity
+        const existing = existingResult.rows[0];
+        const newQuantity = existing.quantity + stockData.quantity;
+
+        const updateQuery = `
+          UPDATE stocks 
+          SET quantity = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+          RETURNING *;
+        `;
+        
+        const updateResult = await client.query(updateQuery, [newQuantity, existing.id]);
+        stockRecord = updateResult.rows[0];
+        
+        console.log(`📈 Stock updated (legacy): ${stockData.item_number} (${stockData.lot_no}) - ${existing.quantity} → ${newQuantity}`);
+      } else {
+        // Create new record
+        const insertQuery = `
+          INSERT INTO stocks (po_number, item_number, lot_no, quantity)
+          VALUES ($1, $2, $3, $4)
+          RETURNING *;
+        `;
+        
+        const insertResult = await client.query(insertQuery, [
+          stockData.po_number,
+          stockData.item_number,
+          stockData.lot_no,
+          stockData.quantity
+        ]);
+        
+        stockRecord = insertResult.rows[0];
+        console.log(`✨ New stock record created (legacy): ${stockData.item_number} (${stockData.lot_no}) - ${stockData.quantity}`);
+      }
     }
 
     await client.query('COMMIT');
@@ -83,6 +153,7 @@ const updateStock = async (stockData: IStockUpdate): Promise<IStock> => {
           item_number: stockRecord.item_number,
           lot_no: stockRecord.lot_no,
           quantity: stockRecord.quantity,
+          epc: stockRecord.epc,
           updated_at: stockRecord.updated_at,
           timestamp: new Date().toISOString()
         });
@@ -195,6 +266,8 @@ const getStockStats = async (): Promise<IStockStats> => {
 // Get stock summary by item
 const getStockSummary = async (): Promise<IStockSummary[]> => {
   try {
+    console.log('📊 [StockService] Getting stock summary...');
+    
     const query = `
       SELECT 
         s.item_number,
@@ -204,14 +277,17 @@ const getStockSummary = async (): Promise<IStockSummary[]> => {
         COUNT(DISTINCT s.po_number) as po_count,
         MAX(s.updated_at) as last_updated
       FROM stocks s
-      LEFT JOIN items i ON s.item_number = i.item_number
+      LEFT JOIN items i ON s.item_number = i.item_code
       GROUP BY s.item_number, i.item_description
       ORDER BY total_quantity DESC;
     `;
     
+    console.log('📊 [StockService] Executing query:', query);
     const result = await pool.query(query);
+    console.log('📊 [StockService] Query result:', result.rows.length, 'rows');
     return result.rows;
   } catch (error) {
+    console.error('❌ [StockService] Error getting stock summary:', error);
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to get stock summary');
   }
 };
@@ -229,7 +305,7 @@ const getStockByPoItemLot = async (
         i.item_description,
         po.po_date
       FROM stocks s
-      LEFT JOIN items i ON s.item_number = i.item_number
+      LEFT JOIN items i ON s.item_number = i.item_code
       LEFT JOIN purchase_orders po ON s.po_number = po.po_number
       WHERE s.po_number = $1 AND s.item_number = $2 AND s.lot_no = $3;
     `;

@@ -3,29 +3,32 @@
 import type React from "react"
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Eye, EyeOff, Mail, Lock } from "lucide-react"
+import { Eye, EyeOff, Mail, Lock, User, Shield, Warehouse, Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
+import { useAuth } from "@/lib/context/auth-context"
+import { demoAccounts } from "@/lib/api/auth"
 import Link from "next/link"
 
 export default function LoginForm() {
-  const [email, setEmail] = useState("")
+  const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [rememberMe, setRememberMe] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
+  const { login } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (!email || !password) {
+    if (!username || !password) {
       toast({
         title: "Missing Information",
-        description: "Please enter both your email and password to continue",
+        description: "Please enter both your username and password to continue",
         variant: "destructive",
       })
       return
@@ -34,28 +37,52 @@ export default function LoginForm() {
     setIsLoading(true)
 
     try {
-      // In a real app, you would call your authentication API here
-      // const response = await signIn(email, password)
+      await login({ username, password })
+      
+      toast({
+        title: "Login Successful",
+        description: "Welcome back! Redirecting to dashboard...",
+        variant: "default",
+      })
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // For demo purposes, we'll just redirect to dashboard
-      // In a real app, you would check the response and handle errors
-      if (email === "demo@assetiq.com" && password === "password") {
-        // Save to localStorage if remember me is checked
-        if (rememberMe) {
-          localStorage.setItem("assetiq-email", email)
-        }
-
-        router.push("/dashboard")
-      } else {
-        throw new Error("Invalid credentials")
+      // Save to localStorage if remember me is checked
+      if (rememberMe) {
+        localStorage.setItem("assetiq-username", username)
       }
-    } catch (error) {
+
+      router.push("/dashboard")
+    } catch (error: any) {
       toast({
         title: "Authentication Failed",
-        description: "The email or password you entered is incorrect. Please try again.",
+        description: error.message || "The username or password you entered is incorrect. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDemoLogin = async (role: keyof typeof demoAccounts) => {
+    const demoAccount = demoAccounts[role]
+    setUsername(demoAccount.username)
+    setPassword(demoAccount.password)
+    
+    setIsLoading(true)
+    
+    try {
+      await login({ username: demoAccount.username, password: demoAccount.password })
+      
+      toast({
+        title: "Demo Login Successful",
+        description: `Logged in as ${demoAccount.name}`,
+        variant: "default",
+      })
+
+      router.push("/dashboard")
+    } catch (error: any) {
+      toast({
+        title: "Demo Login Failed",
+        description: error.message || "Failed to login with demo account",
         variant: "destructive",
       })
     } finally {
@@ -78,14 +105,14 @@ export default function LoginForm() {
         <div className="space-y-2">
           <div className="relative">
             <Input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              placeholder="Username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="pl-10 py-6 border-2 border-gray-200 focus:border-emerald-500 focus:ring-0 shadow-sm rounded-lg"
             />
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-              <Mail className="h-5 w-5" />
+              <User className="h-5 w-5" />
             </div>
           </div>
         </div>
@@ -141,23 +168,63 @@ export default function LoginForm() {
           >
             {isLoading ? "Signing in..." : "Sign in"}
           </Button>
-          <Button
-            variant="outline"
-            className="w-full py-6 border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-emerald-600 hover:border-emerald-600 transition-colors"
-            onClick={() => {
-              setEmail("demo@assetiq.com")
-              setPassword("password")
-              setTimeout(() => {
-                const form = document.querySelector('form')
-                if (form) {
-                  const event = new Event('submit', { bubbles: true, cancelable: true })
-                  form.dispatchEvent(event)
-                }
-              }, 100)
-            }}
-          >
-            Try demo account
-          </Button>
+          
+          {/* Demo Account Buttons */}
+          <div className="space-y-2">
+            <div className="text-center text-sm text-gray-500 mb-3">
+              Or try with demo accounts:
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="py-3 border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-emerald-600 hover:border-emerald-600 transition-colors"
+                onClick={() => handleDemoLogin('admin')}
+                disabled={isLoading}
+              >
+                <Shield className="h-4 w-4 mr-2" />
+                Admin
+              </Button>
+              
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="py-3 border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-emerald-600 hover:border-emerald-600 transition-colors"
+                onClick={() => handleDemoLogin('super_admin')}
+                disabled={isLoading}
+              >
+                <Shield className="h-4 w-4 mr-2" />
+                Super Admin
+              </Button>
+              
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="py-3 border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-emerald-600 hover:border-emerald-600 transition-colors"
+                onClick={() => handleDemoLogin('warehouse_manager')}
+                disabled={isLoading}
+              >
+                <Warehouse className="h-4 w-4 mr-2" />
+                Warehouse Manager
+              </Button>
+              
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="py-3 border-gray-200 text-gray-700 hover:bg-gray-50 hover:text-emerald-600 hover:border-emerald-600 transition-colors"
+                onClick={() => handleDemoLogin('room_person')}
+                disabled={isLoading}
+              >
+                <Users className="h-4 w-4 mr-2" />
+                Room Person
+              </Button>
+            </div>
+          </div>
         </div>
       </form>
     </div>

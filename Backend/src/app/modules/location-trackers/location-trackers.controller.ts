@@ -6,6 +6,19 @@ import { LocationTrackerService } from './location-trackers.service';
 import { ILocationTrackerFilters } from './location-trackers.interface';
 import { paginationHelpers } from '../../../helpers/paginationHelper';
 
+// Process Location Scan
+const processLocationScan = catchAsync(async (req: Request, res: Response) => {
+  const scanData = req.body;
+  const result = await LocationTrackerService.processLocationScan(scanData);
+  
+  sendResponse(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: 'Location scan processed successfully',
+    data: result,
+  });
+});
+
 const createLocationTracker = catchAsync(async (req: Request, res: Response) => {
   const result = await LocationTrackerService.createLocationTracker(req.body);
   
@@ -18,16 +31,24 @@ const createLocationTracker = catchAsync(async (req: Request, res: Response) => 
 });
 
 const getAllLocationTrackers = catchAsync(async (req: Request, res: Response) => {
-  const filters: ILocationTrackerFilters = req.query;
-  const paginationOptions = paginationHelpers.calculatePagination(req.query);
+  // Separate filters from pagination options
+  const { page, limit, sortBy, sortOrder, ...filterParams } = req.query;
   
-  // Cast sortOrder to the expected type
-  const typedPaginationOptions = {
-    ...paginationOptions,
-    sortOrder: paginationOptions.sortOrder as 'asc' | 'desc' | undefined
+  const filters: ILocationTrackerFilters = filterParams;
+  const paginationOptions = {
+    page: page ? Number(page) : undefined,
+    limit: limit ? Number(limit) : undefined,
+    sortBy: sortBy as string,
+    sortOrder: (sortOrder === 'asc' || sortOrder === 'desc') ? sortOrder as 'asc' | 'desc' : undefined
   };
   
-  const result = await LocationTrackerService.getAllLocationTrackers(filters, typedPaginationOptions);
+  console.log('🔍 [Controller] Separated params:', { 
+    filters, 
+    paginationOptions,
+    originalQuery: req.query 
+  });
+  
+  const result = await LocationTrackerService.getAllLocationTrackers(filters, paginationOptions);
   
   sendResponse(res, {
     statusCode: httpStatus.OK,
@@ -80,6 +101,7 @@ const getLocationTrackerByLocation = catchAsync(async (req: Request, res: Respon
 });
 
 export const LocationTrackerController = {
+  processLocationScan,
   createLocationTracker,
   getAllLocationTrackers,
   getLocationTrackerStats,

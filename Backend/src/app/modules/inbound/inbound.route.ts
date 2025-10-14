@@ -12,6 +12,10 @@ router.post(
   InboundController.processRfidScan
 );
 
+// Test endpoint to manually trigger location tracking
+router.post('/test-location', InboundController.testLocationTracking);
+
+
 // Get all inbounds with filters and pagination
 router.get(
   '/',

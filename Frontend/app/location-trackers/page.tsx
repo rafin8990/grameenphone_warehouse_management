@@ -9,16 +9,36 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
-import { Search, RefreshCw, MapPin, Package, ArrowRight, ArrowLeft, Activity } from 'lucide-react';
+import { Pagination } from '@/components/ui/pagination';
+import { Search, RefreshCw, MapPin, Package, ArrowRight, ArrowLeft, Activity, Radio, Clock } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { locationTrackersApi, ILocationTracker, ILocationTrackerFilters, ILocationTrackerStats, ILocationStatus } from '@/lib/api/location-trackers';
 import { getSocket } from '@/lib/socket';
+
+interface IUnifiedEvent {
+  id?: number;
+  type: 'scan' | 'location' | 'stock';
+  po_number: string;
+  item_number: string;
+  item_description?: string;
+  quantity: number;
+  scanned_quantity?: number;
+  ordered_quantity?: number;
+  lot_no?: string;
+  location_code?: string;
+  location_name?: string;
+  status?: 'in' | 'out';
+  epc?: string;
+  timestamp: string;
+  isDuplicate?: boolean;
+}
 
 export default function LocationTrackersPage() {
   const [trackers, setTrackers] = useState<ILocationTracker[]>([]);
   const [loading, setLoading] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
+  const [unifiedEvents, setUnifiedEvents] = useState<IUnifiedEvent[]>([]);
+  const [lastEvent, setLastEvent] = useState<IUnifiedEvent | null>(null);
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 10,
@@ -69,10 +89,12 @@ export default function LocationTrackersPage() {
   // Fetch current status
   const fetchCurrentStatus = async () => {
     try {
+      console.log('🔍 Fetching current status...');
       const response = await locationTrackersApi.getCurrentLocationStatus();
+      console.log('📊 Current status data:', response.data);
       setCurrentStatus(response.data);
     } catch (error) {
-      console.error('Failed to fetch current status:', error);
+      console.error('❌ Failed to fetch current status:', error);
     }
   };
 
@@ -96,18 +118,76 @@ export default function LocationTrackersPage() {
       console.log('❌ Disconnected from location trackers');
     });
 
-    // Listen for new location tracker activity
-    socket.on('location-tracker:new-activity', (data: ILocationTracker) => {
-      console.log('📡 New location tracker activity:', data);
+    // Listen for scan events
+    socket.on('inbound:new-scan', (data: any) => {
+      console.log('📡 New scan received:', data);
+      const unifiedEvent: IUnifiedEvent = {
+        id: Date.now(),
+        type: 'scan',
+        po_number: data.po_number,
+        item_number: data.item_number,
+        item_description: data.item_description,
+        quantity: data.quantity,
+        scanned_quantity: data.scanned_quantity,
+        ordered_quantity: data.ordered_quantity,
+        lot_no: data.lot_no,
+        epc: data.epc,
+        timestamp: data.timestamp,
+        isDuplicate: data.isDuplicate
+      };
+      setLastEvent(unifiedEvent);
+      setUnifiedEvents(prev => [unifiedEvent, ...prev].slice(0, 100));
+    });
+
+    // Listen for location tracking events
+    socket.on('location-tracker:new-activity', (data: any) => {
+      console.log('📍 New location event received:', data);
+      const unifiedEvent: IUnifiedEvent = {
+        id: data.id || Date.now(),
+        type: 'location',
+        po_number: data.po_number,
+        item_number: data.item_number,
+        quantity: data.quantity,
+        location_code: data.location_code,
+        location_name: data.location_name,
+        status: data.status,
+        epc: data.epc,
+        timestamp: data.timestamp || data.created_at
+      };
+      setLastEvent(unifiedEvent);
+      setUnifiedEvents(prev => [unifiedEvent, ...prev].slice(0, 100));
       setTrackers(prev => [data, ...prev].slice(0, 50)); // Keep last 50 records
       fetchStats(); // Refresh stats
-      fetchCurrentStatus(); // Refresh current status
+      
+      // Immediately update current status with new data
+      fetchCurrentStatus().then(() => {
+        console.log('🔄 Current location status refreshed');
+      });
+    });
+
+    // Listen for stock update events
+    socket.on('stock:updated', (data: any) => {
+      console.log('📦 New stock update received:', data);
+      const unifiedEvent: IUnifiedEvent = {
+        id: data.id || Date.now(),
+        type: 'stock',
+        po_number: data.po_number,
+        item_number: data.item_number,
+        quantity: data.quantity,
+        lot_no: data.lot_no,
+        epc: data.epc,
+        timestamp: data.timestamp || data.updated_at
+      };
+      setLastEvent(unifiedEvent);
+      setUnifiedEvents(prev => [unifiedEvent, ...prev].slice(0, 100));
     });
 
     return () => {
       socket.off('connect');
       socket.off('disconnect');
+      socket.off('inbound:new-scan');
       socket.off('location-tracker:new-activity');
+      socket.off('stock:updated');
     };
   }, []);
 
@@ -161,6 +241,58 @@ export default function LocationTrackersPage() {
 
   const getStatusIcon = (status: 'in' | 'out') => {
     return status === 'in' ? <ArrowRight className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />;
+  };
+
+  const getEventIcon = (event: IUnifiedEvent) => {
+    switch (event.type) {
+      case 'scan':
+        return <Radio className="h-4 w-4" />;
+      case 'location':
+        return event.status === 'in' ? <ArrowRight className="h-4 w-4" /> : <ArrowLeft className="h-4 w-4" />;
+      case 'stock':
+        return <Package className="h-4 w-4" />;
+      default:
+        return <Clock className="h-4 w-4" />;
+    }
+  };
+
+  const getEventColor = (event: IUnifiedEvent) => {
+    switch (event.type) {
+      case 'scan':
+        return event.isDuplicate ? 'text-orange-600' : 'text-green-600';
+      case 'location':
+        return event.status === 'in' ? 'text-green-600' : 'text-blue-600';
+      case 'stock':
+        return 'text-purple-600';
+      default:
+        return 'text-gray-600';
+    }
+  };
+
+  const getEventBgColor = (event: IUnifiedEvent) => {
+    switch (event.type) {
+      case 'scan':
+        return event.isDuplicate ? 'bg-orange-100' : 'bg-green-100';
+      case 'location':
+        return event.status === 'in' ? 'bg-green-100' : 'bg-blue-100';
+      case 'stock':
+        return 'bg-purple-100';
+      default:
+        return 'bg-gray-100';
+    }
+  };
+
+  const getEventTitle = (event: IUnifiedEvent) => {
+    switch (event.type) {
+      case 'scan':
+        return event.isDuplicate ? 'Duplicate Scan' : 'New Scan';
+      case 'location':
+        return event.status === 'in' ? 'Item Entered Location' : 'Item Exited Location';
+      case 'stock':
+        return 'Stock Updated';
+      default:
+        return 'Event';
+    }
   };
 
   return (
@@ -232,39 +364,168 @@ export default function LocationTrackersPage() {
           </div>
         )}
 
-        {/* Current Status Overview */}
-        {currentStatus.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MapPin className="h-5 w-5" />
-                Current Location Status
-              </CardTitle>
-              <CardDescription>
-                Real-time status of items across all locations
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {currentStatus.slice(0, 6).map((status, index) => (
-                  <div key={index} className="p-4 border rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <Badge variant={getStatusBadgeVariant(status.last_status)}>
-                        {status.last_status.toUpperCase()}
-                      </Badge>
-                      <span className="text-xs text-gray-500">
-                        {formatTime(status.last_updated)}
-                      </span>
+        {/* Live Location Summary */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="h-5 w-5" />
+              Live Location Summary
+            </CardTitle>
+            <CardDescription>
+              Real-time view of items currently in each location - shows latest status for each item
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {currentStatus.length > 0 ? (
+              <div className="space-y-4">
+                {/* Group by location */}
+                {Object.entries(
+                  currentStatus.reduce((acc, status) => {
+                    if (!acc[status.location_code]) {
+                      acc[status.location_code] = [];
+                    }
+                    acc[status.location_code].push(status);
+                    return acc;
+                  }, {} as Record<string, ILocationStatus[]>)
+                ).map(([locationCode, items]) => (
+                  <div key={locationCode} className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-lg font-semibold flex items-center gap-2">
+                        <MapPin className="h-5 w-5 text-blue-600" />
+                        <span className="text-blue-800">{items[0]?.location_name || locationCode}</span>
+                        <span className="text-sm text-gray-500 font-normal">({locationCode})</span>
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-sm">
+                          {items.length} item{items.length !== 1 ? 's' : ''}
+                        </Badge>
+                        <Badge 
+                          variant={items.some(item => item.last_status === 'in') ? 'default' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {items.some(item => item.last_status === 'in') ? 'ACTIVE' : 'EMPTY'}
+                        </Badge>
+                      </div>
                     </div>
-                    <p className="font-medium">{status.location_code}</p>
-                    <p className="text-sm text-gray-600">{status.po_number}</p>
-                    <p className="text-sm text-gray-500">{status.item_number}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {items.map((item, index) => (
+                        <div 
+                          key={`${item.po_number}-${item.item_number}`} 
+                          className={`p-3 rounded-lg border-l-4 transition-all ${
+                            item.last_status === 'in' 
+                              ? 'border-green-500 bg-green-50 animate-pulse' 
+                              : 'border-gray-300 bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <Badge 
+                              variant={item.last_status === 'in' ? 'default' : 'secondary'}
+                              className="text-xs flex items-center gap-1"
+                            >
+                              {item.last_status === 'in' ? (
+                                <>
+                                  <ArrowRight className="h-3 w-3" />
+                                  IN
+                                </>
+                              ) : (
+                                <>
+                                  <ArrowLeft className="h-3 w-3" />
+                                  OUT
+                                </>
+                              )}
+                            </Badge>
+                            <span className="text-xs text-gray-500">
+                              {formatTime(item.last_updated)}
+                            </span>
+                          </div>
+                          <p className="font-medium text-sm">{item.item_number}</p>
+                          <p className="text-xs text-gray-600">{item.po_number}</p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Last seen: {formatDate(item.last_updated)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <MapPin className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                <p className="text-lg font-medium">No location data available</p>
+                <p className="text-sm">Items will appear here when they are scanned and tracked</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Live Activity Feed */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Live Activity Feed
+            </CardTitle>
+            <CardDescription>
+              Real-time location tracking events
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {trackers.length > 0 ? (
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {trackers.slice(0, 20).map((tracker, index) => (
+                  <div 
+                    key={tracker.id} 
+                    className={`p-3 rounded-lg border transition-all ${
+                      index === 0 ? 'bg-green-50 border-green-300 animate-pulse' : 'bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-full ${
+                          tracker.status === 'in' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'
+                        }`}>
+                          {tracker.status === 'in' ? (
+                            <ArrowRight className="h-4 w-4" />
+                          ) : (
+                            <ArrowLeft className="h-4 w-4" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="font-medium">
+                            {tracker.item_number} 
+                            {tracker.item_description && (
+                              <span className="text-sm text-gray-500 ml-2">
+                                ({tracker.item_description})
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {tracker.location_code} • {tracker.po_number} • Qty: {tracker.quantity}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <Badge variant={tracker.status === 'in' ? 'default' : 'secondary'}>
+                          {tracker.status.toUpperCase()}
+                        </Badge>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {formatTime(tracker.created_at)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                <Activity className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                <p className="text-lg font-medium">No activity yet</p>
+                <p className="text-sm">Location tracking events will appear here in real-time</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Filters and Actions */}
         <Card>
@@ -415,37 +676,13 @@ export default function LocationTrackersPage() {
 
                 {/* Pagination */}
                 {pagination.totalPages > 1 && (
-                  <div className="mt-4">
-                    <Pagination>
-                      <PaginationContent>
-                        <PaginationItem>
-                          <PaginationPrevious
-                            onClick={() => handlePageChange(pagination.page - 1)}
-                            className={!pagination.hasPrev ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                          />
-                        </PaginationItem>
-                        
-                        {Array.from({ length: pagination.totalPages }, (_, i) => i + 1).map((page) => (
-                          <PaginationItem key={page}>
-                            <PaginationLink
-                              onClick={() => handlePageChange(page)}
-                              isActive={page === pagination.page}
-                              className="cursor-pointer"
-                            >
-                              {page}
-                            </PaginationLink>
-                          </PaginationItem>
-                        ))}
-                        
-                        <PaginationItem>
-                          <PaginationNext
-                            onClick={() => handlePageChange(pagination.page + 1)}
-                            className={!pagination.hasNext ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                          />
-                        </PaginationItem>
-                      </PaginationContent>
-                    </Pagination>
-                  </div>
+                  <Pagination
+                    currentPage={pagination.page}
+                    totalPages={pagination.totalPages}
+                    totalItems={pagination.total}
+                    itemsPerPage={pagination.limit}
+                    onPageChange={handlePageChange}
+                  />
                 )}
               </>
             )}

@@ -73,13 +73,13 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
     // Get total available RFID tags (if table exists)
     const totalAvailableRfid = await getTableCount('SELECT COUNT(*) as count FROM rfid_tags WHERE status = $1', ['available']);
 
-    // Get total vendors
+    // Get total vendors (if table exists)
     const totalVendors = await getTableCount('SELECT COUNT(*) as count FROM vendors');
 
     // Get total items
     const totalItems = await getTableCount('SELECT COUNT(*) as count FROM items');
 
-    // Get total available requisitions
+    // Get total available requisitions (if table exists)
     const totalAvailableRequisitions = await getTableCount('SELECT COUNT(*) as count FROM requisitions WHERE status = $1', ['open']);
 
     // Get total purchase orders

@@ -15,6 +15,7 @@ const processRfidScanZodSchema = z.object({
   }),
 });
 
+
 // Update inbound validation schema
 const updateInboundZodSchema = z.object({
   params: z.object({

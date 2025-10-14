@@ -15,8 +15,9 @@ export default {
     port: Number(process.env.DB_PORT) || 5432,
   },
   bycrypt_salt_rounds: process.env.BCRYPT_SALT_ROUNDS,
-  jwt_secret: 'secret',
-  jwt_expires_in: '1d',
-  jwt_refresh_secret: 'very very secret',
-  jwt_refresh_expires_in: '365d',
+  jwt_secret: process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-this-in-production',
+  jwt_expires_in: process.env.JWT_EXPIRES_IN || '1d',
+  jwt_refresh_secret: process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-this-in-production',
+  jwt_refresh_expires_in: process.env.JWT_REFRESH_EXPIRES_IN || '365d',
+  redis_url: '188.166.232.67:6089',
 };

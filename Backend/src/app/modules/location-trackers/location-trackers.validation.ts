@@ -33,10 +33,32 @@ const getLocationTrackersZodSchema = z.object({
     status: z.enum(['in', 'out']).optional(),
     start_date: z.string().optional(),
     end_date: z.string().optional(),
+    fromDate: z.string().optional(),
+    toDate: z.string().optional(),
+  }),
+});
+
+// Location tracker scan validation schema
+const processLocationScanZodSchema = z.object({
+  body: z.object({
+    epc: z
+      .string({
+        required_error: 'EPC is required',
+      })
+      .min(1, 'EPC must not be empty'),
+    deviceId: z
+      .string({
+        required_error: 'Device ID is required',
+      })
+      .min(1, 'Device ID must not be empty'),
+    rssi: z.string().optional(),
+    count: z.number().optional(),
+    timestamp: z.number().optional(),
   }),
 });
 
 export const LocationTrackerValidation = {
   createLocationTrackerZodSchema,
   getLocationTrackersZodSchema,
+  processLocationScanZodSchema,
 };

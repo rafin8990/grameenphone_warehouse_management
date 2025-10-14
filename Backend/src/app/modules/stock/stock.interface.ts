@@ -4,6 +4,7 @@ export type IStock = {
   item_number: string;
   lot_no: string;
   quantity: number;
+  epc?: string;
   created_at?: Date;
   updated_at?: Date;
   item_description?: string;
@@ -22,6 +23,7 @@ export type IStockUpdate = {
   item_number: string;
   lot_no: string;
   quantity: number;
+  epc?: string;
 };
 
 export type IStockStats = {

@@ -71,6 +71,23 @@ export default function DashboardPage() {
         }
       } catch (error) {
         console.error("Error fetching unified live data:", error)
+        // Set some default data when API fails
+        setDashboardData({
+          metrics: [
+            { name: "locations", value: 0, icon: "/dashboard/floors.svg", label: "Total Locations" },
+            { name: "rfid", value: 0, icon: "/dashboard/readers.svg", label: "Available RFID" },
+            { name: "vendors", value: 0, icon: "/dashboard/vendors.svg", label: "Total Vendors" },
+            { name: "items", value: 0, icon: "/dashboard/assets.svg", label: "Total Items" },
+            { name: "stock_items", value: 0, icon: "/dashboard/assets.svg", label: "Live Stock Items" },
+            { name: "stock_quantity", value: 0, icon: "/dashboard/readers.svg", label: "Total Stock Quantity" },
+            { name: "purchase_orders", value: 0, icon: "/dashboard/vendors.svg", label: "Total Purchase Orders" },
+            { name: "pending_purchase_orders", value: 0, icon: "/dashboard/readers.svg", label: "Pending Purchase Orders" }
+          ],
+          assetPerformance: { value: 0, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [0,0,0,0,0,0] } },
+          assetQuantity: { value: 0, status: "Good", statusIcon: "/dashboard/good.svg", chart: { labels: ["Apr", "May", "June", "July", "Aug", "Sept"], data: [0,0,0,0,0,0] } },
+          serviceScheduleStatus: { labels: [], data: [] },
+          checkInOutActivity: { growth: 0, period: "Annually", chart: { labels: ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], data: new Array(12).fill(0) } }
+        })
       } finally {
         setLoading(false)
       }
@@ -153,7 +170,24 @@ export default function DashboardPage() {
   } 
 
   if (loading) return <Loading variant="fullscreen" />
-  if (!dashboardData) return <div>No data</div>
+  if (!dashboardData) {
+    return (
+      <PageLayout activePage="dashboard">
+        <div className="container mx-auto px-4 py-6">
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+            <h2 className="text-xl font-semibold text-yellow-800 mb-2">Welcome to the Dashboard!</h2>
+            <p className="text-yellow-700 mb-4">
+              You have successfully logged in. The dashboard is loading data from the backend.
+            </p>
+            <div className="text-sm text-yellow-600">
+              <p>User: {typeof window !== 'undefined' ? localStorage.getItem('user') : 'Loading...'}</p>
+              <p>Role: {typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || '{}').role : 'Loading...'}</p>
+            </div>
+          </div>
+        </div>
+      </PageLayout>
+    )
+  }
 
   const { metrics, assetPerformance, assetQuantity, serviceScheduleStatus, checkInOutActivity } = dashboardData
 
