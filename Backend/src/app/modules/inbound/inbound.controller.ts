@@ -12,6 +12,7 @@ import sendResponse from '../../../shared/sendResponse';
 // Process RFID scan
 const processRfidScan = catchAsync(async (req: Request, res: Response) => {
   const scanData = req.body;
+  // console.log('scanData', scanData);
   const result = await InboundService.processRfidScan(scanData);
   
   sendResponse<IInbound>(res, {

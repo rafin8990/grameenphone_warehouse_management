@@ -1,6 +1,4 @@
 import { createClient, RedisClientType } from 'redis';
-import config from '../config';
-
 let client: RedisClientType | null = null;
 let isConnected = false;
 
@@ -10,24 +8,8 @@ async function connect(): Promise<void> {
   }
 
   try {
-    const urlObj = new URL(String(config.redis_url));
-    const isTls = urlObj.protocol === 'rediss:';
-
     client = createClient({
-      // host: "188.166.232.67",
-      // port: 6379,
-      url: "redis://188.166.232.67:6389",
-      // socket: {
-      //   // Enable TLS for rediss:// and set SNI to the hostname from the URL
-      //   ...(isTls ? { tls: true as const, servername: urlObj.hostname } : {}),
-      //   reconnectStrategy: (retries) => {
-      //     if (retries > 5) {
-      //       console.log('⚠️  Redis connection failed after 5 retries - continuing without Redis');
-      //       return false; // Stop retrying
-      //     }
-      //     return Math.min(retries * 100, 3000);
-      //   }
-      // }
+      url: "redis://:@188.166.232.67:6389",
     });
 
     client.on('error', (err) => {

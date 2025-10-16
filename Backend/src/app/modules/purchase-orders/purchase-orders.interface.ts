@@ -22,6 +22,9 @@ export type IPoItem = {
 // Extended interface for purchase order with items
 export type IPurchaseOrderWithItems = IPurchaseOrder & {
   items?: IPoItem[];
+  total_items?: number;
+  total_ordered_quantity?: number;
+  total_received_quantity?: number;
 };
 
 // Interface for creating purchase order with items

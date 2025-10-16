@@ -1,8 +1,10 @@
 export type IInboundItem = {
   item_number: string;
   item_description: string;
-  lot_no: string;
-  quantity: number;
+  lot_no?: string;
+  quantity: number; // Received quantity
+  ordered_quantity: number; // Ordered quantity from PO
+  epc?: string; // EPC for duplicate checking
 };
 
 export type IInbound = {
@@ -20,6 +22,7 @@ export type IRfidScanData = {
   count?: number;
   timestamp?: number;
   deviceId?: string;
+  value?: number; // user_id from the payload
 };
 
 export type IInboundFilters = {

@@ -7,7 +7,6 @@ export const run = async () => {
   await pool.query(`
    ALTER TABLE purchase_orders
    ADD CONSTRAINT unique_po_number UNIQUE (po_number);
-    -- Drop table if it exists
     DROP TABLE IF EXISTS stocks;
     CREATE TABLE stocks (
     id SERIAL PRIMARY KEY,                      

@@ -4,11 +4,10 @@ import { paginationHelpers } from '../../../helpers/paginationHelper';
 import { IGenericResponse } from '../../../interfaces/common';
 import { IPaginationOptions } from '../../../interfaces/pagination';
 import pool from '../../../utils/dbClient';
-import { IInbound, IInboundFilters, IInboundItem, IRfidScanData } from './inbound.interface';
+import { IInbound, IInboundFilters, IRfidScanData } from './inbound.interface';
 import { DashboardService } from '../dashboard/dashboard.service';
-import { LocationTrackerService } from '../location-trackers/location-trackers.service';
 import { StockService } from '../stock/stock.service';
-import { POStatusService } from '../purchase-orders/po-status.service';
+import inboundRedis from '../../../services/inboundRedis';
 
 // Get socket instance dynamically to avoid import issues
 const getSocketInstance = () => {
@@ -29,7 +28,16 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
 
     console.log('📡 Processing RFID scan:', scanData);
 
-    // Step 1: Find hex code in po_hex_codes table using EPC
+    // Step 1: Parse user_id from value field (ensure numeric for DB comparisons)
+    const user_id = Number(scanData.value);
+    if (!user_id) {
+      throw new ApiError(
+        httpStatus.BAD_REQUEST,
+        'User ID (value) is required in the payload'
+      );
+    }
+
+    // Step 2: Find hex code in po_hex_codes table using EPC
     const hexCodeQuery = `
       SELECT po_number, lot_no, item_number, quantity
       FROM po_hex_codes
@@ -48,217 +56,130 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     const hexCodeData = hexCodeResult.rows[0];
     const { po_number, lot_no, item_number, quantity } = hexCodeData;
 
-    // Step 2: Get item description and original ordered quantity
-    const itemQuery = `
+    // Step 3: Get purchase order details with items array
+    const poQuery = `
       SELECT 
-        i.item_description,
-        pi.quantity as ordered_quantity
-      FROM items i
-      INNER JOIN po_items pi ON i.item_number = pi.item_number
-      INNER JOIN purchase_orders po ON pi.po_id = po.id
-      WHERE i.item_number = $1 AND po.po_number = $2;
+        po.po_number, 
+        po.po_description as description, 
+        po.supplier_name, 
+        po.po_type as status,
+        COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'item_number', poi.item_number,
+              'quantity', poi.quantity,
+              'created_at', poi.created_at
+            )
+          ) FILTER (WHERE poi.id IS NOT NULL),
+          '[]'::json
+        ) as po_items_array
+      FROM purchase_orders po
+      LEFT JOIN po_items poi ON po.id = poi.po_id
+      WHERE po.po_number = $1
+      GROUP BY po.id, po.po_number, po.po_description, po.supplier_name, po.po_type;
     `;
-    const itemResult = await client.query(itemQuery, [item_number, po_number]);
+    const poResult = await client.query(poQuery, [po_number]);
+
+    if (poResult.rows.length === 0) {
+      throw new ApiError(
+        httpStatus.NOT_FOUND,
+        `Purchase order "${po_number}" not found`
+      );
+    }
+
+    const poData = poResult.rows[0];
+
+    // Step 4: Get item details
+    const itemQuery = `
+      SELECT item_description, primary_uom
+      FROM items
+      WHERE item_number = $1;
+    `;
+    const itemResult = await client.query(itemQuery, [item_number]);
 
     if (itemResult.rows.length === 0) {
       throw new ApiError(
         httpStatus.NOT_FOUND,
-        `Item "${item_number}" not found in items table or not part of PO "${po_number}"`
+        `Item "${item_number}" not found in items table`
       );
     }
 
-    const { item_description, ordered_quantity } = itemResult.rows[0];
+    const itemData = itemResult.rows[0];
 
-    // Step 3: Create processed_epcs table if it doesn't exist
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS processed_epcs (
-        id SERIAL PRIMARY KEY,
-        po_number VARCHAR(100) NOT NULL,
-        epc VARCHAR(255) NOT NULL,
-        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(po_number, epc)
-      );
-    `);
-
-    // Step 4: Check if this EPC was already processed for this PO
-    const epcCheckQuery = `
-      SELECT epc FROM processed_epcs WHERE po_number = $1 AND epc = $2;
+    // Step 5: Get user details (location name)
+    const userQuery = `
+      SELECT name
+      FROM users
+      WHERE id = $1;
     `;
-    const epcCheckResult = await client.query(epcCheckQuery, [po_number, scanData.epc]);
+    const userResult = await client.query(userQuery, [user_id]);
 
-    if (epcCheckResult.rows.length > 0) {
-      // Fetch existing inbound (for returning consistent shape)
-      const existingQuery = `SELECT * FROM inbound WHERE po_number = $1`;
-      const existingResult = await pool.query(existingQuery, [po_number]);
-
-      let existingInbound: any = null;
-      if (existingResult.rows.length > 0) {
-        const existing = existingResult.rows[0];
-        existingInbound = {
-          ...existing,
-          items: Array.isArray(existing.items) ? existing.items : JSON.parse(existing.items),
-        };
-      }
-
-      // Process location tracking even for duplicate EPC
-      if (scanData.deviceId) {
-        try {
-          console.log(`🏢 [Inbound] (dup) Processing location tracking for device: ${scanData.deviceId}`);
-          const locationQuery = `
-            SELECT location_code, location_name
-            FROM locations
-            WHERE location_code = $1;
-          `;
-          const locationResult = await pool.query(locationQuery, [scanData.deviceId]);
-
-          if (locationResult.rows.length > 0) {
-            const { location_code, location_name } = locationResult.rows[0];
-            console.log(`📍 [Inbound] (dup) Location resolved: ${location_name} (${location_code})`);
-
-            const trackerData = {
-              location_code,
-              po_number,
-              item_number,
-              quantity: Number(quantity),
-              status: 'in' as const,
-              epc: scanData.epc,
-            };
-            console.log('🧩 [Inbound] (dup) Creating LocationTracker with:', trackerData);
-            const trackerRecord = await LocationTrackerService.createLocationTracker(trackerData);
-            console.log(`📊 [Inbound] (dup) LocationTracker created: id=${trackerRecord.id}, status=${trackerRecord.status}, code=${location_code}`);
-
-            // Emit standardized event
-            try {
-              const io = getSocketInstance();
-              if (io) {
-                io.emit('location-tracker:new-activity', {
-                  id: trackerRecord.id,
-                  location_code,
-                  location_name,
-                  po_number,
-                  item_number,
-                  quantity: Number(quantity),
-                  status: trackerRecord.status,
-                  epc: scanData.epc,
-                  created_at: trackerRecord.created_at,
-                  timestamp: new Date().toISOString()
-                });
-                console.log(`📡 [Inbound] (dup) Location tracker socket event emitted for ${location_code}`);
-              }
-            } catch (socketError) {
-              console.error('[Inbound] (dup) Location tracker socket emit error (non-critical):', socketError);
-            }
-          } else {
-            console.log(`⚠️ [Inbound] (dup) Location not found for device ID: ${scanData.deviceId}`);
-          }
-        } catch (locationError) {
-          console.error('❌ [Inbound] (dup) Location tracking error (non-critical):', locationError);
-        }
-      } else {
-        console.log('⚠️ [Inbound] (dup) No device ID provided, skipping location tracking');
-      }
-
-      // Get location information for duplicate scan event
-      let locationInfo = null;
-      let defaultLocation = null;
-      
-      if (scanData.deviceId) {
-        try {
-          const locationQuery = `
-            SELECT location_code, location_name
-            FROM locations
-            WHERE location_code = $1;
-          `;
-          const locationResult = await pool.query(locationQuery, [scanData.deviceId]);
-          if (locationResult.rows.length > 0) {
-            locationInfo = locationResult.rows[0];
-          }
-        } catch (error) {
-          console.error('Error getting location info for duplicate:', error);
-        }
-      }
-      
-      // If no deviceId or location not found, use default warehouse location
-      if (!locationInfo) {
-        try {
-          const defaultLocationQuery = `
-            SELECT location_code, location_name
-            FROM locations
-            WHERE location_type = 'warehouse' AND is_active = true
-            ORDER BY created_at ASC
-            LIMIT 1;
-          `;
-          const defaultResult = await pool.query(defaultLocationQuery);
-          if (defaultResult.rows.length > 0) {
-            defaultLocation = defaultResult.rows[0];
-          } else {
-            defaultLocation = {
-              location_code: 'WAREHOUSE_MAIN',
-              location_name: 'Main Warehouse'
-            };
-          }
-        } catch (error) {
-          console.error('Error getting default location for duplicate:', error);
-          defaultLocation = {
-            location_code: 'UNKNOWN',
-            location_name: 'Unknown Location'
-          };
-        }
-      }
-
-      // Emit a duplicate scan event for UI (no quantity change)
-      try {
-        const io = getSocketInstance();
-        if (io) {
-          io.emit('inbound:new-scan', {
-            po_number,
-            item_number,
-            item_description,
-            quantity: (existingInbound?.items?.find?.((it: any) => it.item_number === item_number)?.quantity) ?? Number(quantity),
-            scanned_quantity: Number(quantity),
-            ordered_quantity: Number(ordered_quantity),
-            lot_no,
-            timestamp: new Date().toISOString(),
-            epc: scanData.epc,
-            isDuplicate: true,
-            location_code: locationInfo?.location_code || defaultLocation?.location_code || 'UNKNOWN',
-            location_name: locationInfo?.location_name || defaultLocation?.location_name || 'Unknown Location',
-            location_status: 'in', // Default status for duplicate scans
-          });
-          console.log(`✅ [Inbound] (dup) Socket event emitted for ${po_number} - Location: ${locationInfo?.location_name || 'Unknown'}`);
-        }
-      } catch (socketError) {
-        console.error('[Inbound] (dup) Socket emit error (non-critical):', socketError);
-      }
-
-      return existingInbound;
+    if (userResult.rows.length === 0) {
+      throw new ApiError(
+        httpStatus.NOT_FOUND,
+        `User with ID "${user_id}" not found`
+      );
     }
 
-    // Mark this EPC as processed immediately
-    await client.query(
-      'INSERT INTO processed_epcs (po_number, epc) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-      [po_number, scanData.epc]
-    );
-    console.log(`✅ EPC ${scanData.epc} marked as processed for ${po_number}`);
+    const userData = userResult.rows[0];
+    const location_name = userData.name; // User's name becomes location name
 
-    // Step 5: Check if inbound record exists for this PO
+    // Step 6: Check Redis for EPC+item+PO duplicate within 60 seconds (1 minute)
+    let isInboundDuplicate = false;
+    if (await inboundRedis.checkConnection()) {
+      const isDuplicate = await inboundRedis.checkDuplicate(scanData.epc, item_number, po_number);
+      if (isDuplicate) {
+        console.log(`⚠️ Redis: Duplicate EPC+item+PO combination within 60s: ${scanData.epc}+${item_number}+${po_number} - Will skip processing entirely`);
+        isInboundDuplicate = true;
+        // Return early for true duplicates to prevent double processing
+        return null;
+      } else {
+        // Set duplicate check with 60 second expiry
+        await inboundRedis.setDuplicateCheck(scanData.epc, item_number, po_number);
+        
+        // Store inbound scan data for tracking
+        await inboundRedis.storeInboundScan({
+          epc: scanData.epc,
+          item_number,
+          po_number,
+          quantity: Number(quantity),
+          timestamp: Date.now()
+        });
+      }
+    }
+
+    // Step 7: Create/update inbound JSON structure
+    // Check if there's any existing inbound record for this PO
     const inboundQuery = `
       SELECT id, items
       FROM inbound
-      WHERE po_number = $1;
+      WHERE po_number = $1
+      ORDER BY created_at DESC
+      LIMIT 1;
     `;
     const inboundResult = await client.query(inboundQuery, [po_number]);
 
-    let inboundRecord: IInbound;
+    let inboundRecord: IInbound | null = null;
+    let items: any[] = [];
 
     if (inboundResult.rows.length === 0) {
-      // No inbound record exists - create new one
-      const newItem: IInboundItem = {
+      // Create new inbound record with JSON structure
+      const orderedQuantity = poData.po_items_array?.find((item: any) => item.item_number === item_number)?.quantity || 0;
+      const newItem = {
         item_number,
-        item_description,
-        lot_no,
-        quantity: Number(quantity),
+        item_description: itemData.item_description,
+        quantity: Number(quantity), // Received quantity
+        ordered_quantity: Number(orderedQuantity), // Ordered quantity from PO
+        lot_no: lot_no,
+        epc: scanData.epc // Include EPC for duplicate checking
       };
+
+      items = [newItem];
+      
+      // Ensure items is properly initialized
+      if (!Array.isArray(items)) {
+        items = [];
+      }
 
       const insertQuery = `
         INSERT INTO inbound (po_number, items, received_at)
@@ -268,311 +189,287 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
 
       const insertResult = await client.query(insertQuery, [
         po_number,
-        JSON.stringify([newItem]),
+        JSON.stringify(items),
       ]);
 
       inboundRecord = insertResult.rows[0];
-      // PostgreSQL JSONB automatically returns as object, no need to parse
-      inboundRecord.items = Array.isArray(inboundRecord.items) 
-        ? inboundRecord.items 
-        : JSON.parse(inboundRecord.items as any);
-      
-      console.log('✨ New inbound created:', { id: inboundRecord.id, po_number });
+      if (inboundRecord) {
+        inboundRecord.items = Array.isArray(inboundRecord.items) 
+          ? inboundRecord.items 
+          : JSON.parse(inboundRecord.items as any);
+        
+        console.log('✨ New inbound created:', { 
+          id: inboundRecord.id, 
+          po_number, 
+          item: item_number,
+          ordered: orderedQuantity,
+          received: Number(quantity)
+        });
+      }
     } else {
-      // Inbound record exists - update items JSON
+      // Update existing inbound record
       const existingInbound = inboundResult.rows[0];
-      // PostgreSQL JSONB returns as object, not string
-      let items: IInboundItem[] = Array.isArray(existingInbound.items)
+      items = Array.isArray(existingInbound.items)
         ? existingInbound.items
         : JSON.parse(existingInbound.items as any);
       
+      // Ensure items is an array
+      if (!Array.isArray(items)) {
+        items = [];
+      }
+      
       console.log('📦 Existing inbound found:', { id: existingInbound.id, items_count: items.length });
 
-      // Find if item already exists in the items array
-      const existingItemIndex = items.findIndex(
-        (item) => item.item_number === item_number
+      // Check if same EPC+item_number combination already exists
+      const existingEpcItemIndex = items.findIndex(
+        (item) => item.item_number === item_number && item.epc === scanData.epc
       );
 
-      let finalQuantity: number;
-      let isNewItem: boolean;
-
-      if (existingItemIndex !== -1) {
-        // Item exists - increase quantity
-        items[existingItemIndex].quantity += Number(quantity);
-        finalQuantity = items[existingItemIndex].quantity;
-        isNewItem = false;
-        console.log(`📈 Quantity increased for ${item_number}: ${items[existingItemIndex].quantity - Number(quantity)} → ${finalQuantity}`);
+      if (existingEpcItemIndex !== -1) {
+        // Same EPC+item combination exists - ignore this scan
+        console.log(`⚠️ Duplicate EPC+item combination ignored: ${scanData.epc}+${item_number} - Quantity not added to inbound`);
+        // Don't update inbound record for duplicate EPC+item
+        inboundRecord = existingInbound;
+        if (inboundRecord) {
+          inboundRecord.items = Array.isArray(inboundRecord.items)
+            ? inboundRecord.items
+            : JSON.parse(inboundRecord.items as any);
+        }
       } else {
-        // Item doesn't exist - add new item
+        // Different EPC - always add as separate entry
+        const orderedQuantity = poData.po_items_array?.find((item: any) => item.item_number === item_number)?.quantity || 0;
         items.push({
           item_number,
-          item_description,
-          lot_no,
-          quantity: Number(quantity),
+          item_description: itemData.item_description,
+          quantity: Number(quantity), // Received quantity
+          ordered_quantity: Number(orderedQuantity), // Ordered quantity from PO
+          lot_no: lot_no,
+          epc: scanData.epc // Include EPC for tracking
         });
-        finalQuantity = Number(quantity);
-        isNewItem = true;
-        console.log(`✨ New item added: ${item_number} with quantity ${finalQuantity}`);
+        console.log(`✨ New EPC entry added: ${item_number} (EPC: ${scanData.epc}) - Ordered: ${orderedQuantity}, Received: ${Number(quantity)}`);
+        console.log(`📊 Total entries for item ${item_number}: ${items.filter(item => item.item_number === item_number).length}`);
+
+        // Update inbound record only if not a duplicate EPC+item
+        const updateQuery = `
+          UPDATE inbound
+          SET items = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+          RETURNING *;
+        `;
+
+        const updateResult = await client.query(updateQuery, [
+          JSON.stringify(items),
+          existingInbound.id,
+        ]);
+
+        inboundRecord = updateResult.rows[0];
+        if (inboundRecord) {
+          inboundRecord.items = Array.isArray(inboundRecord.items)
+            ? inboundRecord.items
+            : JSON.parse(inboundRecord.items as any);
+          
+          console.log('✅ Inbound updated:', { id: inboundRecord.id, items_count: inboundRecord.items.length });
+        }
       }
+    }
 
-      // Update inbound record
-      const updateQuery = `
-        UPDATE inbound
-        SET items = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-        RETURNING *;
+    // Step 8: Location tracking with Redis duplicate check for same EPC+PO+item+location
+    let isLocationTrackerDuplicate = false;
+    let shouldCreateLocationTracker = true;
+    let newStatus: 'in' | 'out' = 'in'; // Default to 'in' for first time
+
+    // Check Redis for location tracker duplicate (EPC+PO+item+location combination)
+    if (await inboundRedis.checkConnection()) {
+      const isLocationDuplicate = await inboundRedis.checkLocationTrackerDuplicate(scanData.epc, po_number, item_number, String(user_id));
+      if (isLocationDuplicate) {
+        const ttl = await inboundRedis.getLocationTrackerTTL(scanData.epc, po_number, item_number, String(user_id));
+        console.log(`⚠️ Redis: Location tracker duplicate within 60s: ${scanData.epc}+${po_number}+${item_number}+${user_id} - ${ttl}s remaining`);
+        isLocationTrackerDuplicate = true;
+        shouldCreateLocationTracker = false;
+      }
+    }
+
+    // If not a Redis duplicate, check database for status toggle logic
+    if (!isLocationTrackerDuplicate) {
+      const locationTrackerQuery = `
+        SELECT id, status, created_at
+        FROM location_tracker
+        WHERE epc = $1 AND user_id = $2 AND po_number = $3 AND item_number = $4
+        ORDER BY created_at DESC
+        LIMIT 1;
       `;
-
-      const updateResult = await client.query(updateQuery, [
-        JSON.stringify(items),
-        existingInbound.id,
+      const trackerResult = await client.query(locationTrackerQuery, [
+        scanData.epc, user_id, po_number, item_number
       ]);
 
-      inboundRecord = updateResult.rows[0];
-      // PostgreSQL JSONB automatically returns as object
-      inboundRecord.items = Array.isArray(inboundRecord.items)
-        ? inboundRecord.items
-        : JSON.parse(inboundRecord.items as any);
-      
-      console.log('✅ Inbound updated:', { id: inboundRecord.id, items_count: inboundRecord.items.length });
+      if (trackerResult.rows.length > 0) {
+        const lastRecord = trackerResult.rows[0];
+        const timeDiff = Date.now() - new Date(lastRecord.created_at).getTime();
+        
+        if (timeDiff < 60000) { // 60 seconds (1 minute) cooldown for location tracker
+          console.log(`⚠️ Location tracker cooldown active for EPC ${scanData.epc} - ${Math.round((60000 - timeDiff) / 1000)}s remaining`);
+          shouldCreateLocationTracker = false;
+        } else {
+          // Toggle status after 60 seconds
+          newStatus = lastRecord.status === 'in' ? 'out' : 'in';
+          console.log(`🔄 Location tracker status toggle: ${lastRecord.status} → ${newStatus}`);
+        }
+      } else {
+        console.log(`📍 First time location tracking for EPC ${scanData.epc} - status: in`);
+      }
+    }
+
+    // Insert location tracker record only if not duplicate and cooldown has passed
+    let trackerInsertResult = null;
+    if (shouldCreateLocationTracker) {
+      const insertTrackerQuery = `
+        INSERT INTO location_tracker (epc, user_id, po_number, item_number, quantity, status)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *;
+      `;
+      trackerInsertResult = await client.query(insertTrackerQuery, [
+        scanData.epc, user_id, po_number, item_number, Number(quantity), newStatus
+      ]);
+      // Set Redis duplicate key only after a successful insert
+      if (await inboundRedis.checkConnection()) {
+        await inboundRedis.setLocationTrackerDuplicate(scanData.epc, po_number, item_number, String(user_id));
+      }
+      console.log(`📊 Location tracker created: status=${newStatus}, location=${location_name}`);
+    } else {
+      console.log(`⏳ Location tracker skipped due to ${isLocationTrackerDuplicate ? 'Redis duplicate' : 'cooldown'}`);
+    }
+
+    // Step 9: Stock update with EPC+item+lot rules
+    // Stock update always works regardless of Redis duplicate check
+    const stockQuery = `
+      SELECT id, quantity
+      FROM stocks
+      WHERE epc = $1 AND item_number = $2 AND lot_no = $3;
+    `;
+    const stockResult = await client.query(stockQuery, [scanData.epc, item_number, lot_no]);
+
+    if (stockResult.rows.length > 0) {
+      // Same EPC+item+lot - ignore duplicate
+      console.log(`⚠️ Stock duplicate ignored: same EPC+item+lot combination`);
+    } else {
+      // Check for different EPC but same item+lot
+      const similarStockQuery = `
+        SELECT id, quantity
+        FROM stocks
+        WHERE item_number = $1 AND lot_no = $2 AND epc != $3;
+      `;
+      const similarStockResult = await client.query(similarStockQuery, [item_number, lot_no, scanData.epc]);
+
+      if (similarStockResult.rows.length > 0) {
+        // Different EPC, same item+lot - add quantity
+        const stockId = similarStockResult.rows[0].id;
+        const currentQuantity = similarStockResult.rows[0].quantity;
+        const newQuantity = currentQuantity + Number(quantity);
+
+        const updateStockQuery = `
+          UPDATE stocks
+          SET quantity = $1, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $2
+          RETURNING *;
+        `;
+        await client.query(updateStockQuery, [newQuantity, stockId]);
+        console.log(`📈 Stock quantity updated: ${currentQuantity} → ${newQuantity} for ${item_number} (${lot_no})`);
+      } else {
+        // New stock record
+        const insertStockQuery = `
+          INSERT INTO stocks (epc, po_number, item_number, lot_no, quantity)
+          VALUES ($1, $2, $3, $4, $5)
+          RETURNING *;
+        `;
+        const stockInsertResult = await client.query(insertStockQuery, [
+          scanData.epc, po_number, item_number, lot_no, Number(quantity)
+        ]);
+        console.log(`✨ New stock record created: ${item_number} (${lot_no})`);
+      }
     }
 
     await client.query('COMMIT');
 
-    // Get the final quantity from the inbound record
-    const finalItemData = inboundRecord.items.find(
-      (item: IInboundItem) => item.item_number === item_number
-    );
-    const displayQuantity = finalItemData ? finalItemData.quantity : Number(quantity);
-
-    // Get location information for the scan event
-    let locationInfo = null;
-    let defaultLocation = null;
-    
-    // Try to get location from deviceId if provided
-    if (scanData.deviceId) {
-      try {
-        const locationQuery = `
-          SELECT location_code, location_name
-          FROM locations
-          WHERE location_code = $1;
-        `;
-        const locationResult = await client.query(locationQuery, [scanData.deviceId]);
-        if (locationResult.rows.length > 0) {
-          locationInfo = locationResult.rows[0];
-        }
-      } catch (error) {
-        console.error('Error getting location info:', error);
-      }
-    }
-    
-    // If no deviceId or location not found, use default warehouse location
-    if (!locationInfo) {
-      try {
-        const defaultLocationQuery = `
-          SELECT location_code, location_name
-          FROM locations
-          WHERE location_type = 'warehouse' AND is_active = true
-          ORDER BY created_at ASC
-          LIMIT 1;
-        `;
-        const defaultResult = await client.query(defaultLocationQuery);
-        if (defaultResult.rows.length > 0) {
-          defaultLocation = defaultResult.rows[0];
-          console.log(`📍 Using default location: ${defaultLocation.location_name} (${defaultLocation.location_code})`);
-        } else {
-          // Create a default location if none exists
-          await client.query(`
-            INSERT INTO locations (location_code, location_name, location_type, is_active)
-            VALUES ('WAREHOUSE_MAIN', 'Main Warehouse', 'warehouse', true)
-            ON CONFLICT (location_code) DO NOTHING
-          `);
-          defaultLocation = {
-            location_code: 'WAREHOUSE_MAIN',
-            location_name: 'Main Warehouse'
-          };
-          console.log(`📍 Created default location: ${defaultLocation.location_name} (${defaultLocation.location_code})`);
-        }
-      } catch (error) {
-        console.error('Error getting default location:', error);
-        defaultLocation = {
-          location_code: 'UNKNOWN',
-          location_name: 'Unknown Location'
-        };
-      }
-    }
-
-    // Emit socket event for live dashboard
+    // Step 10: Emit socket events for live dashboard
+    // Socket events always work regardless of Redis duplicate check
     try {
       const io = getSocketInstance();
       if (io) {
+        // Get all items from the most up-to-date inbound record
+        const allItems = inboundRecord && inboundRecord.items ? inboundRecord.items : items;
+        
+        // Compute aggregated received quantity across ALL entries for this item_number
+        const aggregatedReceivedForItem = allItems
+          .filter((it: any) => it.item_number === item_number)
+          .reduce((sum: number, it: any) => sum + Number(it.quantity || 0), 0);
+
+        // Get ordered quantity from PO
+        const orderedQuantity = poData.po_items_array?.find((item: any) => item.item_number === item_number)?.quantity || 0;
+        
+        // Calculate remaining quantity
+        const resolvedOrderedQty = Number(orderedQuantity);
+        const resolvedReceivedQty = Number(aggregatedReceivedForItem);
+        const resolvedRemainingQty = resolvedOrderedQty - resolvedReceivedQty;
+
+        console.log(`📊 Socket aggregation for ${item_number}:`, {
+          total_entries: allItems.filter((it: any) => it.item_number === item_number).length,
+          individual_quantities: allItems.filter((it: any) => it.item_number === item_number).map((it: any) => ({ epc: it.epc, qty: it.quantity })),
+          aggregated_received: resolvedReceivedQty,
+          ordered: resolvedOrderedQty,
+          remaining: resolvedRemainingQty
+        });
+
+        // Inbound scan event
         io.emit('inbound:new-scan', {
           po_number,
           item_number,
-          item_description,
-          quantity: displayQuantity,  // Use aggregated quantity
-          scanned_quantity: Number(quantity),  // Original scan quantity
-          ordered_quantity: Number(ordered_quantity),  // Original ordered quantity
+          item_description: itemData.item_description,
+          received_quantity: resolvedReceivedQty, // Total received so far (aggregated)
+          scanned_quantity: Number(quantity), // This scan's quantity
+          ordered_quantity: resolvedOrderedQty,
+          remaining_quantity: resolvedRemainingQty, // How much more to receive
           lot_no,
           timestamp: new Date().toISOString(),
           epc: scanData.epc,
-          location_code: locationInfo?.location_code || defaultLocation?.location_code || 'UNKNOWN',
-          location_name: locationInfo?.location_name || defaultLocation?.location_name || 'Unknown Location',
-          location_status: 'in', // Default status for new scans
+          location_name,
+          location_status: newStatus,
+          user_id
         });
-        console.log(`✅ Socket event emitted for ${po_number} - Item: ${item_number}, Total Qty: ${displayQuantity}, Location: ${locationInfo?.location_name || 'Unknown'}`);
-      } else {
-        console.log('⚠️ Socket.IO not available, skipping event emit');
+
+        // Location tracker event (only if tracker was created)
+        if (trackerInsertResult && trackerInsertResult.rows.length > 0) {
+          io.emit('location-tracker:new-activity', {
+            id: trackerInsertResult.rows[0].id,
+            epc: scanData.epc,
+            user_id,
+            po_number,
+            item_number,
+            quantity: Number(quantity),
+            received_quantity: resolvedReceivedQty, // Total received so far (aggregated)
+            ordered_quantity: resolvedOrderedQty,
+            remaining_quantity: resolvedRemainingQty,
+            status: newStatus,
+            location_name,
+            created_at: trackerInsertResult.rows[0].created_at,
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        console.log(`✅ Socket events emitted for ${po_number} - Item: ${item_number}, Status: ${newStatus}, Location: ${location_name}`);
+        console.log(`📊 Socket data: received_quantity=${resolvedReceivedQty}, scanned_quantity=${Number(quantity)}, ordered_quantity=${resolvedOrderedQty}`);
       }
     } catch (socketError) {
       console.error('Socket emit error (non-critical):', socketError);
-      // Don't throw - socket error shouldn't break the main flow
     }
 
-    // Location Tracking Logic - NEW FEATURE
-    // Use the resolved location (either from deviceId or default)
-    const finalLocation = locationInfo || defaultLocation;
-    if (finalLocation) {
-      try {
-        console.log(`🏢 [Inbound] Processing location tracking for: ${finalLocation.location_name} (${finalLocation.location_code})`);
-        
-        // Create location tracker record
-        const trackerData = {
-          location_code: finalLocation.location_code,
-          po_number,
-          item_number,
-          quantity: Number(quantity),
-          status: 'in' as const, // Default status, will be toggled by service if needed
-          epc: scanData.epc,
-        };
-        
-        console.log('🧩 [Inbound] Creating LocationTracker with:', trackerData);
-        const trackerRecord = await LocationTrackerService.createLocationTracker(trackerData);
-        console.log(`📊 [Inbound] LocationTracker created: id=${trackerRecord.id}, status=${trackerRecord.status}, code=${finalLocation.location_code}`);
-        
-        // Emit location tracker socket event for live dashboard (standardized event name)
-        try {
-          const io = getSocketInstance();
-          if (io) {
-            io.emit('location-tracker:new-activity', {
-              id: trackerRecord.id,
-              location_code: finalLocation.location_code,
-              location_name: finalLocation.location_name,
-              po_number,
-              item_number,
-              quantity: Number(quantity),
-              status: trackerRecord.status,
-              epc: scanData.epc,
-              created_at: trackerRecord.created_at,
-              timestamp: new Date().toISOString()
-            });
-            
-            // Also update the scan event with the actual location status
-            io.emit('inbound:location-status-update', {
-              po_number,
-              item_number,
-              location_code: finalLocation.location_code,
-              location_name: finalLocation.location_name,
-              location_status: trackerRecord.status,
-              timestamp: new Date().toISOString()
-            });
-            console.log(`📡 Location tracker socket event emitted for ${finalLocation.location_code}`);
-          }
-        } catch (socketError) {
-          console.error('Location tracker socket emit error (non-critical):', socketError);
-        }
-        
-      } catch (locationError) {
-        console.error('❌ [Inbound] Location tracking error (non-critical):', locationError);
-        // Don't throw - location tracking error shouldn't break the main inbound flow
-      }
-    } else {
-      console.log('⚠️ [Inbound] No location available for tracking');
-    }
-
-    // Stock Update Logic - NEW FEATURE
-    try {
-      console.log(`📦 Updating stock for: ${po_number} - ${item_number} (${lot_no})`);
-      
-      const stockData = {
-        po_number,
-        item_number,
-        lot_no,
-        quantity: Number(quantity),
-        epc: scanData.epc
-      };
-      
-      const stockRecord = await StockService.updateStock(stockData);
-      console.log(`✅ Stock updated: ${stockRecord.quantity} units of ${item_number} (${lot_no})`);
-      
-      // Emit stock update socket event for live dashboard
-      try {
-        const io = getSocketInstance();
-        if (io) {
-          io.emit('stock:updated', {
-            id: stockRecord.id,
-            po_number,
-            item_number,
-            lot_no,
-            quantity: stockRecord.quantity,
-            epc: scanData.epc,
-            created_at: stockRecord.created_at,
-            updated_at: stockRecord.updated_at,
-            timestamp: new Date().toISOString()
-          });
-          console.log(`📡 Stock update socket event emitted for ${item_number}`);
-        }
-      } catch (socketError) {
-        console.error('Stock update socket emit error (non-critical):', socketError);
-      }
-      
-    } catch (stockError) {
-      console.error('Stock update error (non-critical):', stockError);
-      // Don't throw - stock update error shouldn't break the main inbound flow
-    }
-
-    // PO Status Check - NEW FEATURE
-    try {
-      console.log(`📋 Checking PO status for: ${po_number}`);
-      
-      const poStatusResult = await POStatusService.checkAndUpdatePOStatus(po_number);
-      
-      if (poStatusResult.isUpdated) {
-        console.log(`✅ PO ${po_number} status updated to: ${poStatusResult.status}`);
-        
-        // Emit PO status update socket event for live dashboard
-        try {
-          const io = getSocketInstance();
-          if (io) {
-            io.emit('po:status-updated', {
-              po_number,
-              status: poStatusResult.status,
-              timestamp: new Date().toISOString()
-            });
-            console.log(`📡 PO status update socket event emitted for ${po_number}`);
-          }
-        } catch (socketError) {
-          console.error('PO status socket emit error (non-critical):', socketError);
-        }
-      } else {
-        console.log(`ℹ️ PO ${po_number} status unchanged: ${poStatusResult.status}`);
-      }
-      
-    } catch (poStatusError) {
-      console.error('PO status check error (non-critical):', poStatusError);
-      // Don't throw - PO status check error shouldn't break the main inbound flow
-    }
-
-    return inboundRecord;
+    return inboundRecord || null;
   } catch (error: any) {
     await client.query('ROLLBACK');
 
     if (error instanceof ApiError) throw error;
 
-    // Log the actual error for debugging
     console.error('Inbound processing error:', error);
 
-    // Extract proper error message
     let errorMessage = 'Failed to process RFID scan';
     if (error instanceof Error) {
       errorMessage = error.message;

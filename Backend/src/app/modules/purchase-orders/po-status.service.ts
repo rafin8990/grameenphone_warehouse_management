@@ -64,24 +64,25 @@ const checkAndUpdatePOStatus = async (po_number: string): Promise<{ status: stri
     const orderedItems = orderedItemsResult.rows;
     console.log(`📋 Found ${orderedItems.length} items in PO ${po_number}`);
 
-    // Get received quantities from inbound table
+    // Compute received quantities using inbound table - sum quantities for same item number
     const receivedItemsQuery = `
       SELECT 
-        items
-      FROM inbound
-      WHERE po_number = $1;
+        (item->>'item_number') as item_number,
+        SUM((item->>'quantity')::numeric) as quantity
+      FROM inbound,
+      LATERAL jsonb_array_elements(items) as item
+      WHERE po_number = $1
+      GROUP BY (item->>'item_number');
     `;
     const receivedItemsResult = await client.query(receivedItemsQuery, [po_number]);
 
-    let receivedItems: any[] = [];
-    if (receivedItemsResult.rows.length > 0) {
-      const inboundRecord = receivedItemsResult.rows[0];
-      receivedItems = Array.isArray(inboundRecord.items) 
-        ? inboundRecord.items 
-        : JSON.parse(inboundRecord.items);
+    const receivedItems: Record<string, number> = {};
+    for (const row of receivedItemsResult.rows) {
+      receivedItems[row.item_number] = Number(row.quantity);
     }
 
-    console.log(`📦 Found ${receivedItems.length} received items for PO ${po_number}`);
+    console.log(`📦 Aggregated ${Object.keys(receivedItems).length} received items for PO ${po_number} from inbound table`);
+    console.log(`📊 Received items breakdown:`, receivedItems);
 
     // Check each ordered item against received quantities
     let allItemsFullyReceived = true;
@@ -94,11 +95,7 @@ const checkAndUpdatePOStatus = async (po_number: string): Promise<{ status: stri
       totalOrderedQuantity += Number(ordered_quantity);
 
       // Find received quantity for this item
-      const receivedItem = receivedItems.find(
-        (item: any) => item.item_number === item_number
-      );
-
-      const receivedQuantity = receivedItem ? Number(receivedItem.quantity) : 0;
+      const receivedQuantity = receivedItems[item_number] ?? 0;
       totalReceivedQuantity += receivedQuantity;
 
       console.log(`📊 Item ${item_number}: Ordered ${ordered_quantity}, Received ${receivedQuantity}`);
@@ -200,17 +197,9 @@ const getPOStatusSummary = async (po_number: string) => {
       LEFT JOIN (
         SELECT 
           po_number,
-          SUM(
-            CASE 
-              WHEN jsonb_typeof(items) = 'array' 
-              THEN (
-                SELECT SUM((item->>'quantity')::numeric)
-                FROM jsonb_array_elements(items) as item
-              )
-              ELSE 0
-            END
-          ) as total_received_quantity
-        FROM inbound
+          SUM((item->>'quantity')::numeric) as total_received_quantity
+        FROM inbound,
+        LATERAL jsonb_array_elements(items) as item
         WHERE po_number = $1
         GROUP BY po_number
       ) inbound_data ON po.po_number = inbound_data.po_number

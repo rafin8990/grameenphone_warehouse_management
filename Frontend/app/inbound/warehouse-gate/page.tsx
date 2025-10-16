@@ -18,6 +18,7 @@ interface IUnifiedEvent {
   quantity: number;
   scanned_quantity?: number;
   ordered_quantity?: number;
+  remaining_quantity?: number;
   lot_no?: string;
   location_code?: string;
   location_name?: string;
@@ -56,9 +57,10 @@ export default function WarehouseGatePage() {
         po_number: data.po_number,
         item_number: data.item_number,
         item_description: data.item_description,
-        quantity: data.quantity,
+        quantity: data.received_quantity || data.quantity, // Use received_quantity from backend
         scanned_quantity: data.scanned_quantity,
         ordered_quantity: data.ordered_quantity,
+        remaining_quantity: data.remaining_quantity, // Add remaining quantity
         lot_no: data.lot_no,
         epc: data.epc,
         timestamp: data.timestamp,
@@ -85,7 +87,9 @@ export default function WarehouseGatePage() {
         type: 'location',
         po_number: data.po_number,
         item_number: data.item_number,
-        quantity: data.quantity,
+        quantity: data.received_quantity || data.quantity, // Use received_quantity if available
+        ordered_quantity: data.ordered_quantity,
+        remaining_quantity: data.remaining_quantity,
         location_code: data.location_code,
         location_name: data.location_name,
         status: data.status,
@@ -604,32 +608,37 @@ export default function WarehouseGatePage() {
                 </div>
                 <div>
                   <p className="text-xs text-gray-600 mb-1">
-                    {lastEvent.type === 'scan' ? 'Received / Ordered' : 'Quantity'}
+                    {lastEvent.ordered_quantity ? 'Received / Ordered' : 'Quantity'}
                   </p>
-                  {lastEvent.type === 'scan' ? (
+                  {lastEvent.ordered_quantity ? (
                     <div className="flex items-center gap-2">
-                      <p className="text-2xl font-bold text-green-600">{lastEvent.quantity.toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-green-600">{(lastEvent.quantity || 0).toLocaleString()}</p>
                       <span className="text-gray-400">/</span>
-                      <p className="text-xl font-semibold text-blue-600">{lastEvent.ordered_quantity?.toLocaleString()}</p>
+                      <p className="text-xl font-semibold text-blue-600">{(lastEvent.ordered_quantity || 0).toLocaleString()}</p>
                     </div>
                   ) : (
-                    <p className="text-2xl font-bold text-green-600">{lastEvent.quantity.toLocaleString()}</p>
+                    <p className="text-2xl font-bold text-green-600">{(lastEvent.quantity || 0).toLocaleString()}</p>
                   )}
                   {lastEvent.scanned_quantity && (
                     <p className="text-xs text-gray-500">+{lastEvent.scanned_quantity} this scan</p>
                   )}
-                  {lastEvent.type === 'scan' && lastEvent.ordered_quantity && (
+                  {lastEvent.remaining_quantity !== undefined && (
+                    <p className="text-xs text-orange-600">
+                      {lastEvent.remaining_quantity > 0 ? `${lastEvent.remaining_quantity} remaining` : 'Complete!'}
+                    </p>
+                  )}
+                  {lastEvent.ordered_quantity && (
                     <div className="mt-2">
                       <div className="w-full bg-gray-200 rounded-full h-2">
                         <div 
                           className="bg-green-500 h-2 rounded-full transition-all duration-300" 
                           style={{ 
-                            width: `${Math.min((lastEvent.quantity / lastEvent.ordered_quantity) * 100, 100)}%` 
+                            width: `${Math.min(((lastEvent.quantity || 0) / (lastEvent.ordered_quantity || 1)) * 100, 100)}%` 
                           }}
                         ></div>
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
-                        {Math.round((lastEvent.quantity / lastEvent.ordered_quantity) * 100)}% complete
+                        {Math.round(((lastEvent.quantity || 0) / (lastEvent.ordered_quantity || 1)) * 100)}% complete
                       </p>
                     </div>
                   )}

@@ -196,11 +196,21 @@ const getAllPurchaseOrders = async (
       po.created_at,
       po.updated_at,
       po.received_at,
-      COUNT(pi.id)::int as items_count
+      COUNT(pi.id)::int as total_items,
+      SUM(pi.quantity)::int as total_ordered_quantity,
+      COALESCE(inbound_data.total_received_quantity, 0)::int as total_received_quantity
     FROM purchase_orders po
     LEFT JOIN po_items pi ON po.id = pi.po_id
+    LEFT JOIN (
+      SELECT 
+        po_number,
+        SUM((item->>'quantity')::numeric) as total_received_quantity
+      FROM inbound,
+      LATERAL jsonb_array_elements(items) as item
+      GROUP BY po_number
+    ) inbound_data ON po.po_number = inbound_data.po_number
     ${whereClause}
-    GROUP BY po.id, po.status, po.received_at
+    GROUP BY po.id, po.status, po.received_at, inbound_data.total_received_quantity
     ORDER BY po.${safeSortBy} ${safeSortOrder}
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
   `;
@@ -244,8 +254,13 @@ const getAllPurchaseOrders = async (
       po_description: po.po_description,
       supplier_name: po.supplier_name,
       po_type: po.po_type,
+      status: po.status,
       created_at: po.created_at,
       updated_at: po.updated_at,
+      received_at: po.received_at,
+      total_items: po.total_items,
+      total_ordered_quantity: po.total_ordered_quantity,
+      total_received_quantity: po.total_received_quantity,
       items: itemsResult.rows,
     });
   }
