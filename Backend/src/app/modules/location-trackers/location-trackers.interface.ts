@@ -1,21 +1,23 @@
 export type ILocationTracker = {
   id?: number;
-  location_code: string;
   po_number: string;
   item_number: string;
   quantity: number;
   status: 'in' | 'out';
   epc?: string;
+  user_id?: number;
   created_at?: Date;
   updated_at?: Date;
+  location_name?: string;
 };
 
 export type ILocationTrackerFilters = {
   searchTerm?: string;
-  location_code?: string;
   po_number?: string;
   item_number?: string;
   status?: 'in' | 'out';
+  epc?: string;
+  user_id?: number;
   start_date?: string;
   end_date?: string;
   fromDate?: string;
@@ -32,17 +34,18 @@ export type ILocationTrackerStats = {
 };
 
 export type ILocationStatus = {
-  location_code: string;
   po_number: string;
   item_number: string;
   last_status: 'in' | 'out';
   last_updated: Date;
-  location_name?: string;
+  epc?: string;
+  user_id?: number;
 };
 
 export type ILocationScanData = {
   epc: string;
   deviceId: string;
+  user_id?: number;
   rssi?: string;
   count?: number;
   timestamp?: number;

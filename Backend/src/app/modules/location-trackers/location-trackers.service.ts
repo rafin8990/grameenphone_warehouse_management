@@ -28,20 +28,9 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
   try {
     await client.query('BEGIN');
 
-    const locationQuery = `
-      SELECT location_code, location_name
-      FROM locations
-      WHERE location_code = $1
-      ORDER BY created_at DESC
-      LIMIT 1;
-    `;
-    const locationResult = await client.query(locationQuery, [scanData.deviceId]);
-
-    if (locationResult.rows.length === 0) {
-      throw new ApiError(httpStatus.NOT_FOUND, `No location found for device ID "${scanData.deviceId}"`);
-    }
-
-    const { location_code, location_name } = locationResult.rows[0];
+    // Note: location_code column was removed from location_tracker table
+    // We'll use deviceId as a reference but not store it in the table
+    const location_name = `Device ${scanData.deviceId}`;
 
     const hexCodeQuery = `
       SELECT po_number, lot_no, item_number, quantity
@@ -85,12 +74,12 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
           shouldCreateRecord = false;
           trackerRecord = {
             id: last.id,
-            location_code,
             po_number,
             item_number,
             quantity,
             status: last.status,
             epc: scanData.epc,
+            user_id: scanData.user_id,
             created_at: last.created_at,
             updated_at: last.created_at,
           } as ILocationTracker;
@@ -155,12 +144,12 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
         const last = lastRecordResult.rows[0];
         trackerRecord = {
           id: last.id,
-          location_code,
           po_number,
           item_number,
           quantity,
           status: last.status,
           epc: scanData.epc,
+          user_id: scanData.user_id,
           created_at: last.created_at,
           updated_at: last.created_at
         } as ILocationTracker;
@@ -171,18 +160,18 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
     if (shouldCreateRecord) {
       const insertQuery = `
         INSERT INTO location_tracker (
-          location_code, po_number, item_number, quantity, status, epc, created_at, updated_at
+          po_number, item_number, quantity, status, epc, user_id, created_at, updated_at
         )
         VALUES ($1, $2, $3, $4, $5, $6, now(), now())
         RETURNING *;
       `;
       const insertResult = await client.query(insertQuery, [
-        location_code,
         po_number,
         item_number,
         quantity,
         newStatus,
-        scanData.epc
+        scanData.epc,
+        scanData.user_id || null
       ]);
       trackerRecord = insertResult.rows[0];
       console.log(`✅ Inserted → ID=${trackerRecord.id}, status=${trackerRecord.status}`);
@@ -200,15 +189,15 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
     if (shouldCreateRecord && trackerRecord?.id) {
       const io = getSocketInstance?.();
       if (io) {
-        const activityText = `${trackerRecord.item_number} ${trackerRecord.status.toUpperCase()} at ${trackerRecord.location_code}`;
+        const activityText = `${trackerRecord.item_number} ${trackerRecord.status.toUpperCase()} (EPC: ${trackerRecord.epc})`;
         io.emit('location-tracker:new-activity', {
           id: trackerRecord.id,
-          location_code: trackerRecord.location_code,
           po_number: trackerRecord.po_number,
           item_number: trackerRecord.item_number,
           quantity: trackerRecord.quantity,
           status: trackerRecord.status,
           epc: trackerRecord.epc,
+          user_id: trackerRecord.user_id,
           created_at: trackerRecord.created_at,
           timestamp: new Date().toISOString(),
           activity_text: activityText,
@@ -237,34 +226,23 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    // Check if location exists
-    const locationCheck = await client.query(
-      'SELECT locator_code FROM locations WHERE locator_code = $1',
-      [data.location_code]
-    );
-
-    if (locationCheck.rows.length === 0) {
-      throw new ApiError(
-        httpStatus.NOT_FOUND,
-        `Location with code "${data.location_code}" not found`
-      );
-    }
+    // Note: location_code column was removed from location_tracker table
+    // No need to check location existence since we're not storing it
 
     let shouldCreateRecord = true;
     let newStatus: 'in' | 'out' = data.status;
 
-    // Check if same EPC, location_code, po_number, and item_number combination already exists
+    // Check if same EPC, po_number, and item_number combination already exists
     if (data.epc) {
       const existingEpcQuery = `
         SELECT status, created_at 
         FROM location_tracker 
-        WHERE epc = $1 AND location_code = $2 AND po_number = $3 AND item_number = $4
+        WHERE epc = $1 AND po_number = $2 AND item_number = $3
         ORDER BY created_at DESC 
         LIMIT 1
       `;
       const existingEpcResult = await client.query(existingEpcQuery, [
         data.epc,
-        data.location_code,
         data.po_number,
         data.item_number
       ]);
@@ -281,23 +259,23 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
         } else {
           // More than 30 seconds - toggle the status (in -> out, out -> in)
           newStatus = lastRecord.status === 'in' ? 'out' : 'in';
-          console.log(`🔄 Same EPC combination >30s ago - toggling status: ${lastRecord.status} → ${newStatus} for ${data.location_code}`);
+          console.log(`🔄 Same EPC combination >30s ago - toggling status: ${lastRecord.status} → ${newStatus} for EPC ${data.epc}`);
           console.log(`⏰ Time difference: ${timeDiff}ms (${Math.round(timeDiff / 1000)}s)`);
           shouldCreateRecord = true; // We need to create a new record with the toggled status
         }
       } else {
         // No existing EPC combination - create new entry with requested status
-        console.log(`✨ New EPC combination - creating "${data.status}" entry for ${data.location_code}`);
+        console.log(`✨ New EPC combination - creating "${data.status}" entry for EPC ${data.epc}`);
       }
     } else {
       // Legacy logic for non-EPC tracking
       const recentCheck = await client.query(`
         SELECT status, created_at 
         FROM location_tracker 
-        WHERE location_code = $1 AND po_number = $2 AND item_number = $3
+        WHERE po_number = $1 AND item_number = $2
         ORDER BY created_at DESC 
         LIMIT 1
-      `, [data.location_code, data.po_number, data.item_number]);
+      `, [data.po_number, data.item_number]);
 
       if (recentCheck.rows.length > 0) {
         const lastRecord = recentCheck.rows[0];
@@ -305,7 +283,7 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
         // If last post was 30s ago or more, toggle the status; otherwise keep requested
         if (timeDiff >= 30000) {
           newStatus = lastRecord.status === 'in' ? 'out' : 'in';
-          console.log(`🔄 Status toggled (>=30s) for ${data.location_code}: ${lastRecord.status} → ${newStatus}`);
+          console.log(`🔄 Status toggled (>=30s) for EPC ${data.epc}: ${lastRecord.status} → ${newStatus}`);
         } else {
           console.log(`⏱️ Last activity <30s; keeping requested status: ${newStatus}`);
         }
@@ -321,11 +299,10 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
         if (data.epc) {
           const deleteQuery = `
             DELETE FROM location_tracker 
-            WHERE epc = $1 AND location_code = $2 AND po_number = $3 AND item_number = $4
+            WHERE epc = $1 AND po_number = $2 AND item_number = $3
           `;
           await client.query(deleteQuery, [
             data.epc,
-            data.location_code,
             data.po_number,
             data.item_number
           ]);
@@ -333,19 +310,19 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
         }
 
         const insertQuery = `
-          INSERT INTO location_tracker (location_code, po_number, item_number, quantity, status, epc)
+          INSERT INTO location_tracker (po_number, item_number, quantity, status, epc, user_id)
           VALUES ($1, $2, $3, $4, $5, $6)
           RETURNING *;
         `;
 
         console.log('📝 [LocationTracker] Inserting row with computed status:', newStatus);
         const result = await client.query(insertQuery, [
-          data.location_code,
           data.po_number,
           data.item_number,
           data.quantity,
           newStatus,
-          data.epc || null
+          data.epc || null,
+          data.user_id || null
         ]);
 
         trackerRecord = result.rows[0];
@@ -358,28 +335,29 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
       // Return existing record info without creating new entry
       trackerRecord = {
         id: 0, // Indicates no new record created
-        location_code: data.location_code,
         po_number: data.po_number,
         item_number: data.item_number,
         quantity: data.quantity,
         status: newStatus,
         epc: data.epc,
+        user_id: data.user_id,
         created_at: new Date(),
         updated_at: new Date()
       };
 
-      console.log(`ℹ️ No new location tracker created - item remains "${newStatus}" at ${data.location_code}`);
+      console.log(`ℹ️ No new location tracker created - item remains "${newStatus}" for EPC ${data.epc}`);
     }
 
     await client.query('COMMIT');
 
     console.log('✅ [LocationTracker] Insert successful:', {
       id: trackerRecord.id,
-      location_code: trackerRecord.location_code,
       po_number: trackerRecord.po_number,
       item_number: trackerRecord.item_number,
       quantity: trackerRecord.quantity,
       status: trackerRecord.status,
+      epc: trackerRecord.epc,
+      user_id: trackerRecord.user_id,
       created_at: trackerRecord.created_at,
     });
 
@@ -393,20 +371,20 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
       try {
         const io = getSocketInstance();
         if (io) {
-          const activity_text = `${trackerRecord.item_number} ${String(trackerRecord.status).toUpperCase()} at ${trackerRecord.location_code}`;
+          const activity_text = `${trackerRecord.item_number} ${String(trackerRecord.status).toUpperCase()} (EPC: ${trackerRecord.epc})`;
           io.emit('location-tracker:new-activity', {
             id: trackerRecord.id,
-            location_code: trackerRecord.location_code,
             po_number: trackerRecord.po_number,
             item_number: trackerRecord.item_number,
             quantity: trackerRecord.quantity,
             status: trackerRecord.status,
             epc: trackerRecord.epc,
+            user_id: trackerRecord.user_id,
             created_at: trackerRecord.created_at,
             timestamp: new Date().toISOString(),
             activity_text
           });
-          console.log(`📡 Live tracker update emitted for location: ${trackerRecord.location_code}`);
+          console.log(`📡 Live tracker update emitted for EPC: ${trackerRecord.epc}`);
         }
       } catch (socketError) {
         console.error('Socket emit error (non-critical):', socketError);
@@ -457,7 +435,7 @@ const getAllLocationTrackers = async (
   // Search term - searches across multiple fields
   if (searchTerm) {
     conditions.push(
-      `(lt.location_code ILIKE $${paramIndex} OR lt.po_number ILIKE $${paramIndex} OR lt.item_number ILIKE $${paramIndex})`
+      `(lt.po_number ILIKE $${paramIndex} OR lt.item_number ILIKE $${paramIndex} OR lt.epc ILIKE $${paramIndex} OR i.item_description ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex})`
     );
     values.push(`%${searchTerm}%`);
     paramIndex++;
@@ -487,11 +465,12 @@ const getAllLocationTrackers = async (
 
   const allowedSortFields = [
     'id',
-    'location_code',
     'po_number',
     'item_number',
     'quantity',
     'status',
+    'epc',
+    'user_id',
     'created_at',
     'updated_at',
   ];
@@ -504,33 +483,60 @@ const getAllLocationTrackers = async (
 
   const query = `
     SELECT 
-      lt.id,
-      lt.location_code,
       lt.po_number,
       lt.item_number,
-      lt.quantity,
       lt.status,
-      lt.created_at,
-      lt.updated_at,
-      l.location_name,
-      i.item_description
+      SUM(lt.quantity) AS quantity,
+      lt.user_id,
+      MAX(lt.created_at) AS created_at,
+      MAX(lt.updated_at) AS updated_at,
+      i.item_description,
+      u.name AS location_name
     FROM location_tracker lt
-    LEFT JOIN locations l ON lt.location_code = l.location_code
     LEFT JOIN items i ON lt.item_number = i.item_number
+    LEFT JOIN users u ON lt.user_id = u.id
     ${whereClause}
-    ORDER BY lt.${safeSortBy} ${safeSortOrder}
+    GROUP BY 
+      lt.po_number, 
+      lt.item_number, 
+      lt.status, 
+      lt.user_id, 
+      DATE_TRUNC('second', lt.created_at), 
+      i.item_description, 
+      u.name
+    ORDER BY ${['po_number','item_number','status','user_id','quantity','created_at','updated_at'].includes(safeSortBy) ? (
+      safeSortBy === 'quantity' ? 'quantity' : (
+      safeSortBy === 'created_at' ? 'MAX(lt.created_at)' : (
+      safeSortBy === 'updated_at' ? 'MAX(lt.updated_at)' : `lt.${safeSortBy}`))
+    ) : 'MAX(lt.created_at)'} ${safeSortOrder}
     LIMIT $${paramIndex} OFFSET $${paramIndex + 1};
   `;
 
   values.push(limit, skip);
 
-  const result = await pool.query(query, values);
+  console.log('🔍 [LocationTracker] Final query:', query);
+  console.log('🔍 [LocationTracker] Query values:', values);
 
-  // Get total count
+  const result = await pool.query(query, values);
+  console.log(`✅ [LocationTracker] Query executed successfully, returned ${result.rows.length} rows`);
+
+  // Get total count (count grouped rows with same-second aggregation)
   const countQuery = `
-    SELECT COUNT(*) 
-    FROM location_tracker lt
-    ${whereClause}
+    SELECT COUNT(*) FROM (
+      SELECT 1
+      FROM location_tracker lt
+      LEFT JOIN items i ON lt.item_number = i.item_number
+      LEFT JOIN users u ON lt.user_id = u.id
+      ${whereClause}
+      GROUP BY 
+        lt.po_number, 
+        lt.item_number, 
+        lt.status, 
+        lt.user_id, 
+        DATE_TRUNC('second', lt.created_at), 
+        i.item_description, 
+        u.name
+    ) grouped_rows
   `;
   const countResult = await pool.query(
     countQuery,
@@ -562,8 +568,7 @@ const getLocationTrackerStats = async (): Promise<ILocationTrackerStats> => {
       WHERE lt1.status = 'in' 
       AND NOT EXISTS (
         SELECT 1 FROM location_tracker lt2 
-        WHERE lt2.location_code = lt1.location_code 
-        AND lt2.po_number = lt1.po_number 
+        WHERE lt2.po_number = lt1.po_number 
         AND lt2.item_number = lt1.item_number 
         AND lt2.created_at > lt1.created_at
       )
@@ -576,8 +581,7 @@ const getLocationTrackerStats = async (): Promise<ILocationTrackerStats> => {
       WHERE lt1.status = 'out' 
       AND NOT EXISTS (
         SELECT 1 FROM location_tracker lt2 
-        WHERE lt2.location_code = lt1.location_code 
-        AND lt2.po_number = lt1.po_number 
+        WHERE lt2.po_number = lt1.po_number 
         AND lt2.item_number = lt1.item_number 
         AND lt2.created_at > lt1.created_at
       )
@@ -608,14 +612,13 @@ const getCurrentLocationStatus = async (): Promise<ILocationStatus[]> => {
 
     const query = `
       SELECT DISTINCT ON (po_number, item_number)
-        lt.location_code,
         lt.po_number,
         lt.item_number,
         lt.status as last_status,
         lt.created_at as last_updated,
-        COALESCE(l.name, lt.location_code) as location_name
+        lt.epc,
+        lt.user_id
       FROM location_tracker lt
-      LEFT JOIN locations l ON lt.location_code = l.locator_code
       ORDER BY po_number, item_number, created_at DESC
     `;
 
@@ -634,12 +637,10 @@ const getLocationTrackerByLocation = async (locationCode: string): Promise<ILoca
     const query = `
       SELECT 
         lt.*,
-        l.location_name,
         i.item_description
       FROM location_tracker lt
-      LEFT JOIN locations l ON lt.location_code = l.locator_code
       LEFT JOIN items i ON lt.item_number = i.item_number
-      WHERE lt.location_code = $1
+      WHERE lt.epc = $1
       ORDER BY lt.created_at DESC
     `;
 

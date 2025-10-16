@@ -11,18 +11,15 @@ import { PageHeader } from '@/components/layout/page-header';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { MapPin, Calendar, Search, ArrowUpDown, ArrowRight, ArrowLeft } from 'lucide-react';
-import { format } from 'date-fns';
 
 interface LocationTrackerEvent {
-  id: number;
-  location_code: string;
-  location_name?: string;
   po_number: string;
   item_number: string;
   item_description?: string;
   quantity: number;
   status: 'in' | 'out';
-  epc?: string;
+  user_id?: number;
+  location_name?: string;
   created_at: string;
   updated_at: string;
 }
@@ -39,6 +36,34 @@ interface LocationTrackerResponse {
   };
 }
 
+// Helper formatters for BD timezone
+const formatBdDate = (iso: string) => {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Dhaka',
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+};
+
+const formatBdTime = (iso: string) => {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Dhaka',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
+};
+
 export default function LocationTrackerStatusPage() {
   const [events, setEvents] = useState<LocationTrackerEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -54,8 +79,7 @@ export default function LocationTrackerStatusPage() {
     searchTerm: '',
     fromDate: '',
     toDate: '',
-    status: '',
-    location_code: ''
+    status: ''
   });
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -71,8 +95,7 @@ export default function LocationTrackerStatusPage() {
         ...(filters.searchTerm && { searchTerm: filters.searchTerm }),
         ...(filters.fromDate && { fromDate: filters.fromDate }),
         ...(filters.toDate && { toDate: filters.toDate }),
-        ...(filters.status && { status: filters.status }),
-        ...(filters.location_code && { location_code: filters.location_code })
+        ...(filters.status && { status: filters.status })
       });
 
        const response = await fetch(`/api/location-trackers?${params}`);
@@ -98,6 +121,10 @@ export default function LocationTrackerStatusPage() {
     setPagination(prev => ({ ...prev, page }));
   };
 
+  const handleLimitChange = (limit: number) => {
+    setPagination(prev => ({ ...prev, limit, page: 1 }));
+  };
+
   const handleSort = (field: string) => {
     if (sortBy === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -117,8 +144,7 @@ export default function LocationTrackerStatusPage() {
       searchTerm: '',
       fromDate: '',
       toDate: '',
-      status: '',
-      location_code: ''
+      status: ''
     });
     setPagination(prev => ({ ...prev, page: 1 }));
   };
@@ -202,15 +228,20 @@ export default function LocationTrackerStatusPage() {
                   <option value="out">OUT</option>
                 </select>
               </div>
-              
+
               <div>
-                <Label htmlFor="location">Location</Label>
-                <Input
-                  id="location"
-                  placeholder="Location code..."
-                  value={filters.location_code}
-                  onChange={(e) => handleFilterChange('location_code', e.target.value)}
-                />
+                <Label htmlFor="pageSize">Items per page</Label>
+                <select
+                  id="pageSize"
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  value={pagination.limit}
+                  onChange={(e) => handleLimitChange(Number(e.target.value))}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
               </div>
             </div>
             
@@ -265,16 +296,6 @@ export default function LocationTrackerStatusPage() {
                         </TableHead>
                         <TableHead 
                           className="cursor-pointer hover:bg-muted/50"
-                          onClick={() => handleSort('location_code')}
-                        >
-                          <div className="flex items-center gap-2">
-                            <MapPin className="h-4 w-4" />
-                            Location
-                            <ArrowUpDown className="h-4 w-4" />
-                          </div>
-                        </TableHead>
-                        <TableHead 
-                          className="cursor-pointer hover:bg-muted/50"
                           onClick={() => handleSort('po_number')}
                         >
                           PO Number
@@ -301,32 +322,19 @@ export default function LocationTrackerStatusPage() {
                           Status
                           <ArrowUpDown className="h-4 w-4" />
                         </TableHead>
-                        <TableHead>EPC</TableHead>
+                        <TableHead>Location</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {events.map((event) => (
-                        <TableRow key={event.id}>
+                      {events.map((event, idx) => (
+                        <TableRow key={`${event.po_number}-${event.item_number}-${event.status}-${event.user_id || 'u'}-${idx}`}>
                           <TableCell>
                             <div>
                               <div className="font-medium">
-                                {format(new Date(event.created_at), 'MMM dd, yyyy')}
+                                {formatBdDate(event.created_at)}
                               </div>
                               <div className="text-sm text-muted-foreground">
-                                {format(new Date(event.created_at), 'HH:mm:ss')}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <MapPin className="h-4 w-4 text-blue-500" />
-                              <div>
-                                <div className="font-medium">{event.location_code}</div>
-                                {event.location_name && (
-                                  <div className="text-sm text-muted-foreground">
-                                    {event.location_name}
-                                  </div>
-                                )}
+                                {formatBdTime(event.created_at)}
                               </div>
                             </div>
                           </TableCell>
@@ -342,7 +350,7 @@ export default function LocationTrackerStatusPage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-center font-medium">
-                            {event.quantity.toLocaleString()}
+                            {Number(event.quantity || 0).toLocaleString()}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
@@ -350,8 +358,13 @@ export default function LocationTrackerStatusPage() {
                               {getStatusBadge(event.status)}
                             </div>
                           </TableCell>
-                          <TableCell className="font-mono text-sm">
-                            {event.epc || '-'}
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-blue-500" />
+                              <div>
+                                <div className="font-medium">{event.location_name || '—'}</div>
+                              </div>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -360,15 +373,34 @@ export default function LocationTrackerStatusPage() {
                 </div>
 
                  {/* Pagination */}
-                 {pagination.totalPages > 1 && (
-                   <div className="mt-4">
-                     <Pagination
-                       currentPage={pagination.page}
-                       totalPages={pagination.totalPages}
-                       totalItems={pagination.total}
-                       itemsPerPage={pagination.limit}
-                       onPageChange={handlePageChange}
-                     />
+                 {(pagination.totalPages > 1 || pagination.total > 0) && (
+                   <div className="mt-4 flex items-center justify-between gap-4">
+                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                       <span>Rows per page:</span>
+                       <select
+                         className="rounded border px-2 py-1"
+                         value={pagination.limit}
+                         onChange={(e) => handleLimitChange(Number(e.target.value))}
+                       >
+                         <option value={10}>10</option>
+                         <option value={20}>20</option>
+                         <option value={50}>50</option>
+                         <option value={100}>100</option>
+                       </select>
+                       <span>
+                         Showing {(pagination.page - 1) * pagination.limit + 1}
+                         - {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
+                       </span>
+                     </div>
+                     <div>
+                       <Pagination
+                         currentPage={pagination.page}
+                         totalPages={pagination.totalPages || Math.max(1, Math.ceil((pagination.total || 0) / pagination.limit))}
+                         totalItems={pagination.total}
+                         itemsPerPage={pagination.limit}
+                         onPageChange={handlePageChange}
+                       />
+                     </div>
                    </div>
                  )}
               </>
