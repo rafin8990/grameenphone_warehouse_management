@@ -6,19 +6,16 @@ import { PageHeader } from '@/components/layout/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
-import { Search, RefreshCw, Package, TrendingUp, Clock, Hash, Building2, Activity } from 'lucide-react';
+import { Search, RefreshCw, Package, TrendingUp, Hash, Building2, Activity } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { stockApi, IStock, IStockFilters, IStockStats, IStockSummary } from '@/lib/api/stock';
-import { getSocket } from '@/lib/socket';
 
 export default function StockPage() {
   const [stocks, setStocks] = useState<IStock[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isConnected, setIsConnected] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 10,
@@ -31,8 +28,7 @@ export default function StockPage() {
     searchTerm: '',
   });
   const [stats, setStats] = useState<IStockStats | null>(null);
-  const [summary, setSummary] = useState<IStockSummary[]>([]);
-  const [filteredSummary, setFilteredSummary] = useState<IStockSummary[]>([]);
+  const [filteredStocks, setFilteredStocks] = useState<IStock[]>([]);
   const { toast } = useToast();
 
   // Fetch stocks
@@ -41,15 +37,7 @@ export default function StockPage() {
       setLoading(true);
       const response = await stockApi.getStocks(filters);
       setStocks(response.data);
-      // Note: API doesn't return pagination, so we'll handle it client-side
-      setPagination({
-        page: 1,
-        limit: 10,
-        total: response.data.length,
-        totalPages: Math.ceil(response.data.length / 10),
-        hasNext: response.data.length > 10,
-        hasPrev: false,
-      });
+      applyFilters(response.data);
     } catch (error) {
       toast({
         title: "Error",
@@ -71,29 +59,19 @@ export default function StockPage() {
     }
   };
 
-  // Fetch summary
-  const fetchSummary = async () => {
-    try {
-      const response = await stockApi.getStockSummary();
-      console.log('📊 Stock summary data received:', response.data);
-      setSummary(response.data);
-      applyFilters(response.data);
-    } catch (error) {
-      console.error('Failed to fetch summary:', error);
-    }
-  };
-
-  // Apply filters to summary data
-  const applyFilters = (data: IStockSummary[]) => {
+  // Apply filters to stock data
+  const applyFilters = (data: IStock[]) => {
     let filtered = [...data];
-    console.log('🔍 Applying filters to data:', { originalCount: data.length, filters });
+    console.log('🔍 Applying filters to stock data:', { originalCount: data.length, filters });
 
     // Apply search filter
     if (filters.searchTerm) {
       const searchTerm = filters.searchTerm.toLowerCase();
       filtered = filtered.filter(item => 
         item.item_number.toLowerCase().includes(searchTerm) ||
-        item.item_description.toLowerCase().includes(searchTerm)
+        (item.item_description && item.item_description.toLowerCase().includes(searchTerm)) ||
+        item.lot_no.toLowerCase().includes(searchTerm) ||
+        item.po_number.toLowerCase().includes(searchTerm)
       );
       console.log('🔍 After search filter:', { count: filtered.length, searchTerm });
     }
@@ -106,8 +84,24 @@ export default function StockPage() {
       console.log('🔍 After item number filter:', { count: filtered.length, itemNumber: filters.item_number });
     }
 
+    // Apply lot number filter
+    if (filters.lot_no) {
+      filtered = filtered.filter(item => 
+        item.lot_no.toLowerCase().includes(filters.lot_no!.toLowerCase())
+      );
+      console.log('🔍 After lot number filter:', { count: filtered.length, lotNo: filters.lot_no });
+    }
+
+    // Apply PO number filter
+    if (filters.po_number) {
+      filtered = filtered.filter(item => 
+        item.po_number.toLowerCase().includes(filters.po_number!.toLowerCase())
+      );
+      console.log('🔍 After PO number filter:', { count: filtered.length, poNumber: filters.po_number });
+    }
+
     console.log('🔍 Final filtered data:', { count: filtered.length, items: filtered.slice(0, 3) });
-    setFilteredSummary(filtered);
+    setFilteredStocks(filtered);
     
     // Update pagination
     const totalPages = Math.ceil(filtered.length / pagination.limit);
@@ -123,44 +117,15 @@ export default function StockPage() {
   useEffect(() => {
     fetchStocks();
     fetchStats();
-    fetchSummary();
   }, []);
 
   // Apply filters when they change
   useEffect(() => {
-    if (summary.length > 0) {
-      applyFilters(summary);
+    if (stocks.length > 0) {
+      applyFilters(stocks);
     }
   }, [filters]);
 
-  // Socket connection for live updates
-  useEffect(() => {
-    const socket = getSocket();
-
-    socket.on('connect', () => {
-      setIsConnected(true);
-      console.log('✅ Connected to stock dashboard');
-    });
-
-    socket.on('disconnect', () => {
-      setIsConnected(false);
-      console.log('❌ Disconnected from stock dashboard');
-    });
-
-    // Listen for stock updates
-    socket.on('stock:updated', (data: IStock) => {
-      console.log('📦 Live stock update received:', data);
-      setStocks(prev => [data, ...prev].slice(0, 50)); // Keep last 50 records
-      fetchStats(); // Refresh stats
-      fetchSummary(); // Refresh summary
-    });
-
-    return () => {
-      socket.off('connect');
-      socket.off('disconnect');
-      socket.off('stock:updated');
-    };
-  }, []);
 
   // Handle search
   const handleSearch = (value: string) => {
@@ -172,11 +137,11 @@ export default function StockPage() {
     setPagination(prev => ({ ...prev, page }));
   };
 
-  // Get paginated summary items
+  // Get paginated stock items
   const getPaginatedItems = () => {
     const startIndex = (pagination.page - 1) * pagination.limit;
     const endIndex = startIndex + pagination.limit;
-    return filteredSummary.slice(startIndex, endIndex);
+    return filteredStocks.slice(startIndex, endIndex);
   };
 
   const formatTime = (timestamp: string) => {
@@ -202,27 +167,12 @@ export default function StockPage() {
     <PageLayout activePage="stock">
       <div className="space-y-6">
         <PageHeader
-          title="Stock Management - Item Summary"
+          title="Stock Management - Aggregated by Item & Lot"
           breadcrumbItems={[
             { label: "Dashboard", href: "/dashboard" },
             { label: "Stock", href: "/stock" }
           ]}
         />
-
-        {/* Connection Status */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">Live Stock Status</CardTitle>
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                <Badge variant={isConnected ? "default" : "destructive"}>
-                  {isConnected ? 'Live Connected' : 'Disconnected'}
-                </Badge>
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
 
         {/* Stats Cards */}
         {stats && (
@@ -300,8 +250,20 @@ export default function StockPage() {
                   onChange={(e) => setFilters(prev => ({ ...prev, item_number: e.target.value }))}
                   className="w-[150px]"
                 />
+                <Input
+                  placeholder="Lot Number"
+                  value={filters.lot_no || ''}
+                  onChange={(e) => setFilters(prev => ({ ...prev, lot_no: e.target.value }))}
+                  className="w-[150px]"
+                />
+                <Input
+                  placeholder="PO Number"
+                  value={filters.po_number || ''}
+                  onChange={(e) => setFilters(prev => ({ ...prev, po_number: e.target.value }))}
+                  className="w-[150px]"
+                />
               </div>
-              <Button onClick={() => { fetchStocks(); fetchStats(); fetchSummary(); }}>
+              <Button onClick={() => { fetchStocks(); fetchStats(); }}>
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Refresh
               </Button>
@@ -318,47 +280,55 @@ export default function StockPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>PO Number</TableHead>
                       <TableHead>Item ID</TableHead>
                       <TableHead>Item Description</TableHead>
-                      <TableHead className="text-right">Total Quantity</TableHead>
-                      <TableHead className="text-right">Lots</TableHead>
-                      <TableHead className="text-right">POs</TableHead>
-                      <TableHead>Last Updated</TableHead>
+                      <TableHead>Lot Number</TableHead>
+                      <TableHead className="text-right">Quantity</TableHead>
+                      <TableHead>Created At</TableHead>
+                      <TableHead>Updated At</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {getPaginatedItems().length > 0 ? (
                       getPaginatedItems().map((item, index) => (
                         <TableRow 
-                          key={item.item_number} 
-                          className={index === 0 ? 'bg-green-50 animate-pulse' : ''}
+                          key={item.id}
                         >
+                          <TableCell className="font-mono text-sm font-semibold">{item.id}</TableCell>
+                          <TableCell className="font-mono text-sm text-blue-600 font-medium">
+                            {item.po_number}
+                          </TableCell>
                           <TableCell className="font-mono text-sm font-semibold">{item.item_number}</TableCell>
                           <TableCell className="max-w-xs">
                             <div className="truncate" title={item.item_description}>
                               {item.item_description || 'N/A'}
                             </div>
                           </TableCell>
+                          <TableCell className="font-mono text-sm text-purple-600 font-medium">
+                            {item.lot_no}
+                          </TableCell>
                           <TableCell className="text-right font-semibold text-green-600 text-lg">
-                            {item.total_quantity.toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-right text-blue-600 font-medium">
-                            {item.lot_count}
-                          </TableCell>
-                          <TableCell className="text-right text-purple-600 font-medium">
-                            {item.po_count}
+                            {item.quantity.toLocaleString()}
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">
-                              <p className="font-medium">{formatTime(item.last_updated)}</p>
-                              <p className="text-xs text-gray-500">{formatDate(item.last_updated)}</p>
+                              <p className="font-medium">{formatTime(item.created_at)}</p>
+                              <p className="text-xs text-gray-500">{formatDate(item.created_at)}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <p className="font-medium">{formatTime(item.updated_at)}</p>
+                              <p className="text-xs text-gray-500">{formatDate(item.updated_at)}</p>
                             </div>
                           </TableCell>
                         </TableRow>
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                        <TableCell colSpan={8} className="text-center py-8 text-gray-500">
                           <div className="flex flex-col items-center gap-2">
                             <Package className="h-8 w-8 text-gray-400" />
                             <p>No stock data available</p>

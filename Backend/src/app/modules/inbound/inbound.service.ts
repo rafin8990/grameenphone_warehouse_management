@@ -7,7 +7,7 @@ import pool from '../../../utils/dbClient';
 import { IInbound, IInboundFilters, IRfidScanData } from './inbound.interface';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { StockService } from '../stock/stock.service';
-import inboundRedis from '../../../services/inboundRedis';
+import { EpcTrackingService } from '../epc-tracking/epc-tracking.service';
 import { getBangladeshTimeISO } from '../../../shared/timezone';
 
 // Get socket instance dynamically to avoid import issues
@@ -205,56 +205,39 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       console.log(`⏳ Location tracker skipped due to 30s cooldown for EPC+user+PO+qty: ${scanData.epc}+${user_id}+${po_number}+${quantity}`);
     }
 
-    // Step 9: Stock Processing
-    const stockQuery = `
-      SELECT id, quantity
-      FROM stocks
-      WHERE epc = $1 AND item_number = $2 AND lot_no = $3;
-    `;
-    const stockResult = await client.query(stockQuery, [scanData.epc, item_number, lot_no]);
-
-    if (stockResult.rows.length > 0) {
-      // Same EPC+item+lot already exists → guard with Redis and ignore repeats
-      if (await inboundRedis.checkConnection()) {
-        const isStockProcessed = await inboundRedis.checkDuplicate(scanData.epc, item_number, po_number);
-        if (isStockProcessed) {
-          console.log(`⚠️ Stock duplicate ignored via Redis: same EPC+item+lot combination`);
-        } else {
-          await inboundRedis.setDuplicateCheck(scanData.epc, item_number, po_number);
-          console.log(`✅ Stock Redis flag set for existing combo: ${scanData.epc}+${item_number}+${lot_no}`);
-        }
-      }
+    // Step 9: Stock Processing with EPC Tracking
+    // Check if this EPC+item+PO combination has been processed before
+    const isEpcProcessed = await EpcTrackingService.isEpcProcessed(scanData.epc, item_number, po_number);
+    
+    if (isEpcProcessed) {
+      console.log(`⚠️ EPC already processed: ${scanData.epc}+${item_number}+${po_number} - skipping stock update`);
     } else {
-      // Check for different EPC but same item+lot
-      const similarStockQuery = `
+      // Record this EPC processing to prevent future duplicates
+      await EpcTrackingService.recordEpcProcessing(scanData.epc, item_number, po_number, Number(quantity));
+      console.log(`✅ EPC processing recorded: ${scanData.epc}+${item_number}+${po_number}`);
+
+      // Check if same EPC+item+lot exists in stocks
+      const stockQuery = `
         SELECT id, quantity
         FROM stocks
-        WHERE item_number = $1 AND lot_no = $2 AND epc != $3;
+        WHERE epc = $1 AND item_number = $2 AND lot_no = $3;
       `;
-      const similarStockResult = await client.query(similarStockQuery, [item_number, lot_no, scanData.epc]);
+      const stockResult = await client.query(stockQuery, [scanData.epc, item_number, lot_no]);
 
-      if (similarStockResult.rows.length > 0) {
-        // Different EPC, same item+lot - add quantity ONCE per EPC using Redis guard
-        if (await inboundRedis.checkConnection()) {
-          const isStockProcessed = await inboundRedis.checkDuplicate(scanData.epc, item_number, po_number);
-          if (isStockProcessed) {
-            console.log(`⚠️ Stock add ignored (already added for this EPC+item+PO)`);
-          } else {
-            await inboundRedis.setDuplicateCheck(scanData.epc, item_number, po_number);
-            const stockId = similarStockResult.rows[0].id;
-            const currentQuantity = similarStockResult.rows[0].quantity;
-            const newQuantity = currentQuantity + Number(quantity);
+      if (stockResult.rows.length > 0) {
+        // Same EPC+item+lot already exists - no need to update quantity
+        console.log(`ℹ️ Stock record already exists for EPC: ${scanData.epc}+${item_number}+${lot_no}`);
+      } else {
+        // Check for different EPC but same item+lot
+        const similarStockQuery = `
+          SELECT id, quantity
+          FROM stocks
+          WHERE item_number = $1 AND lot_no = $2 AND epc != $3;
+        `;
+        const similarStockResult = await client.query(similarStockQuery, [item_number, lot_no, scanData.epc]);
 
-            const updateStockQuery = `
-              UPDATE stocks
-              SET quantity = $1, updated_at = $3
-              WHERE id = $2
-              RETURNING *;
-            `;
-            await client.query(updateStockQuery, [newQuantity, stockId, getBangladeshTimeISO()]);
-            console.log(`📈 Stock quantity updated once-per-EPC: ${currentQuantity} → ${newQuantity} for ${item_number} (${lot_no})`);
-          }
-        } else {
+        if (similarStockResult.rows.length > 0) {
+          // Different EPC, same item+lot - add quantity to existing record
           const stockId = similarStockResult.rows[0].id;
           const currentQuantity = similarStockResult.rows[0].quantity;
           const newQuantity = currentQuantity + Number(quantity);
@@ -266,21 +249,9 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
             RETURNING *;
           `;
           await client.query(updateStockQuery, [newQuantity, stockId, getBangladeshTimeISO()]);
-          console.log(`📈 Stock quantity updated (no Redis): ${currentQuantity} → ${newQuantity} for ${item_number} (${lot_no})`);
-        }
-      } else {
-        // New stock record for this EPC; guard against rapid duplicate scans before row appears
-        let allowInsert = true;
-        if (await inboundRedis.checkConnection()) {
-          const isStockProcessed = await inboundRedis.checkDuplicate(scanData.epc, item_number, po_number);
-          if (isStockProcessed) {
-            allowInsert = false;
-            console.log(`⚠️ Stock insert ignored (duplicate EPC+item+PO)`);
-          } else {
-            await inboundRedis.setDuplicateCheck(scanData.epc, item_number, po_number);
-          }
-        }
-        if (allowInsert) {
+          console.log(`📈 Stock quantity updated: ${currentQuantity} → ${newQuantity} for ${item_number} (${lot_no})`);
+        } else {
+          // New stock record for this EPC
           const insertStockQuery = `
             INSERT INTO stocks (epc, po_number, item_number, lot_no, quantity, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -358,6 +329,18 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
             created_at: trackerInsertResult.rows[0].created_at,
             timestamp: getBangladeshTimeISO()
           });
+        }
+
+        // Emit live stock data update
+        try {
+          const aggregatedStocks = await StockService.getAggregatedStocks();
+          io.emit('stock:live-update', {
+            data: aggregatedStocks,
+            timestamp: getBangladeshTimeISO()
+          });
+          console.log(`📦 Stock live data emitted: ${aggregatedStocks.length} aggregated records`);
+        } catch (stockError) {
+          console.error('Stock socket emit error (non-critical):', stockError);
         }
 
         console.log(`✅ Socket events emitted for ${po_number} - Item: ${item_number}, Status: ${newStatus}, Location: ${location_name}`);

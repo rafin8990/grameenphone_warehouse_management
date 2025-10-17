@@ -1,4 +1,4 @@
-import { axiosInstance } from '../axios';
+import axiosInstance from '../axios';
 
 export interface IStock {
   id: number;
@@ -42,6 +42,16 @@ export interface ILiveStockData {
   last_updated: string;
 }
 
+export interface IAggregatedStock {
+  item_number: string;
+  item_description: string;
+  lot_no: string;
+  total_quantity: number;
+  epc_count: number;
+  po_count: number;
+  last_updated: string;
+}
+
 export const stockApi = {
   // Get all stocks with filters
   getStocks: async (filters: IStockFilters = {}): Promise<{ success: boolean; message: string; data: IStock[] }> => {
@@ -70,6 +80,12 @@ export const stockApi = {
   // Get stock by PO, item, and lot
   getStockByPoItemLot: async (po_number: string, item_number: string, lot_no: string): Promise<{ success: boolean; message: string; data: IStock | null }> => {
     const response = await axiosInstance.get(`/stock/${po_number}/${item_number}/${lot_no}`);
+    return response.data;
+  },
+
+  // Get aggregated stocks by item and lot
+  getAggregatedStocks: async (): Promise<{ success: boolean; message: string; data: IAggregatedStock[] }> => {
+    const response = await axiosInstance.get('/stock/aggregated');
     return response.data;
   },
 };

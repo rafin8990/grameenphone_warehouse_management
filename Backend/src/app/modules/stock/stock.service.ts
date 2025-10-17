@@ -333,6 +333,27 @@ const getLiveStockData = async () => {
   }
 };
 
+// Get aggregated stocks by item and lot (for live frontend table)
+const getAggregatedStocks = async (): Promise<any[]> => {
+  const query = `
+    SELECT 
+      s.item_number,
+      i.item_description,
+      s.lot_no,
+      SUM(s.quantity) as total_quantity,
+      COUNT(DISTINCT s.epc) as epc_count,
+      COUNT(DISTINCT s.po_number) as po_count,
+      MAX(s.updated_at) as last_updated
+    FROM stocks s
+    LEFT JOIN items i ON s.item_number = i.item_number
+    GROUP BY s.item_number, i.item_description, s.lot_no
+    ORDER BY s.item_number, s.lot_no;
+  `;
+
+  const result = await pool.query(query);
+  return result.rows;
+};
+
 export const StockService = {
   updateStock,
   getAllStocks,
@@ -340,4 +361,5 @@ export const StockService = {
   getStockSummary,
   getStockByPoItemLot,
   getLiveStockData,
+  getAggregatedStocks,
 };

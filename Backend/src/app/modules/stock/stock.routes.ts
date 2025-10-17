@@ -11,6 +11,8 @@ router.get('/summary', StockController.getStockSummary);
 
 router.get('/live', StockController.getLiveStockData);
 
+router.get('/aggregated', StockController.getAggregatedStocks);
+
 router.get('/:po_number/:item_number/:lot_no', StockController.getStockByPoItemLot);
 
 export const StockRoutes = router;

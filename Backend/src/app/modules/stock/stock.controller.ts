@@ -62,10 +62,22 @@ const getStockByPoItemLot = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+const getAggregatedStocks = catchAsync(async (req: Request, res: Response) => {
+  const result = await StockService.getAggregatedStocks();
+  
+  sendResponse(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: 'Aggregated stocks retrieved successfully',
+    data: result,
+  });
+});
+
 export const StockController = {
   getAllStocks,
   getStockStats,
   getStockSummary,
   getLiveStockData,
   getStockByPoItemLot,
+  getAggregatedStocks,
 };
