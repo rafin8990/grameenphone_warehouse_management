@@ -372,87 +372,96 @@ export default function LocationTrackersPage() {
               Live Location Summary
             </CardTitle>
             <CardDescription>
-              Real-time view of items currently in each location - shows latest status for each item
+              Real-time totals by location and item (aggregated from recent activity)
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {currentStatus.length > 0 ? (
+            {trackers.length > 0 ? (
               <div className="space-y-4">
-                {/* Group by location */}
+                {/* Group recent trackers by location name (user) */}
                 {Object.entries(
-                  currentStatus.reduce((acc, status) => {
-                    if (!acc[status.location_code]) {
-                      acc[status.location_code] = [];
-                    }
-                    acc[status.location_code].push(status);
+                  trackers.reduce((acc, t) => {
+                    const loc = t.location_name || 'Unknown';
+                    if (!acc[loc]) acc[loc] = [] as typeof trackers;
+                    acc[loc].push(t);
                     return acc;
-                  }, {} as Record<string, ILocationStatus[]>)
-                ).map(([locationCode, items]) => (
-                  <div key={locationCode} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-lg font-semibold flex items-center gap-2">
-                        <MapPin className="h-5 w-5 text-blue-600" />
-                        <span className="text-blue-800">{items[0]?.location_name || locationCode}</span>
-                        <span className="text-sm text-gray-500 font-normal">({locationCode})</span>
-                      </h3>
-                      <div className="flex items-center gap-2">
+                  }, {} as Record<string, typeof trackers>)
+                ).map(([locationName, items]) => {
+                  // Aggregate by item_number within this location
+                  const totals = Object.values(
+                    items.reduce((m, it) => {
+                      const key = it.item_number;
+                      if (!m[key]) {
+                        m[key] = {
+                          item_number: it.item_number,
+                          item_description: it.item_description,
+                          total_quantity: 0,
+                          last_status: it.status,
+                          last_time: it.created_at
+                        };
+                      }
+                      m[key].total_quantity += Number(it.quantity || 0);
+                      // Update last seen info
+                      if (new Date(it.created_at) > new Date(m[key].last_time)) {
+                        m[key].last_time = it.created_at;
+                        m[key].last_status = it.status;
+                      }
+                      return m;
+                    }, {} as Record<string, { item_number: string; item_description?: string; total_quantity: number; last_status?: 'in' | 'out'; last_time: string; }>)
+                  );
+
+                  return (
+                    <div key={locationName} className="border rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-lg font-semibold flex items-center gap-2">
+                          <MapPin className="h-5 w-5 text-blue-600" />
+                          <span className="text-blue-800">{locationName}</span>
+                        </h3>
                         <Badge variant="outline" className="text-sm">
-                          {items.length} item{items.length !== 1 ? 's' : ''}
-                        </Badge>
-                        <Badge 
-                          variant={items.some(item => item.last_status === 'in') ? 'default' : 'secondary'}
-                          className="text-xs"
-                        >
-                          {items.some(item => item.last_status === 'in') ? 'ACTIVE' : 'EMPTY'}
+                          {totals.length} item{totals.length !== 1 ? 's' : ''}
                         </Badge>
                       </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {items.map((item, index) => (
-                        <div 
-                          key={`${item.po_number}-${item.item_number}`} 
-                          className={`p-3 rounded-lg border-l-4 transition-all ${
-                            item.last_status === 'in' 
-                              ? 'border-green-500 bg-green-50 animate-pulse' 
-                              : 'border-gray-300 bg-gray-50'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <Badge 
-                              variant={item.last_status === 'in' ? 'default' : 'secondary'}
-                              className="text-xs flex items-center gap-1"
-                            >
-                              {item.last_status === 'in' ? (
-                                <>
-                                  <ArrowRight className="h-3 w-3" />
-                                  IN
-                                </>
-                              ) : (
-                                <>
-                                  <ArrowLeft className="h-3 w-3" />
-                                  OUT
-                                </>
-                              )}
-                            </Badge>
-                            <span className="text-xs text-gray-500">
-                              {formatTime(item.last_updated)}
-                            </span>
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {totals.map((row) => (
+                          <div
+                            key={`${locationName}-${row.item_number}`}
+                            className={`p-3 rounded-lg border-l-4 ${row.last_status === 'in' ? 'border-green-500 bg-green-50' : 'border-gray-300 bg-gray-50'}`}
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <Badge 
+                                variant={row.last_status === 'in' ? 'default' : 'secondary'}
+                                className="text-xs flex items-center gap-1"
+                              >
+                                {row.last_status === 'in' ? (
+                                  <>
+                                    <ArrowRight className="h-3 w-3" /> IN
+                                  </>
+                                ) : (
+                                  <>
+                                    <ArrowLeft className="h-3 w-3" /> OUT
+                                  </>
+                                )}
+                              </Badge>
+                              <span className="text-xs text-gray-500">
+                                {formatTime(row.last_time)}
+                              </span>
+                            </div>
+                            <p className="font-medium text-sm">{row.item_number}</p>
+                            {row.item_description && (
+                              <p className="text-xs text-gray-600">{row.item_description}</p>
+                            )}
+                            <p className="text-sm font-semibold mt-1">Total: {Number(row.total_quantity).toLocaleString()}</p>
                           </div>
-                          <p className="font-medium text-sm">{item.item_number}</p>
-                          <p className="text-xs text-gray-600">{item.po_number}</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            Last seen: {formatDate(item.last_updated)}
-                          </p>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-8 text-gray-500">
                 <MapPin className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                <p className="text-lg font-medium">No location data available</p>
+                <p className="text-lg font-medium">No recent activity</p>
                 <p className="text-sm">Items will appear here when they are scanned and tracked</p>
               </div>
             )}

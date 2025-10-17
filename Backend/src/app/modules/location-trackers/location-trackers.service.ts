@@ -28,6 +28,11 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
   try {
     await client.query('BEGIN');
 
+    // Normalize user_id from reader value if needed
+    if (!scanData.user_id && typeof scanData.value === 'number') {
+      scanData.user_id = scanData.value;
+    }
+
     // Note: location_code column was removed from location_tracker table
     // We'll use deviceId as a reference but not store it in the table
     const location_name = `Device ${scanData.deviceId}`;
@@ -46,9 +51,10 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
 
     const { po_number, item_number, quantity } = hexCodeResult.rows[0];
 
-    // Step 3️⃣: Check Redis for 30-second cooldown
+    // Step 3️⃣: Check Redis for 30-second cooldown (scoped to EPC+PO+Item+User)
+    const compositeKey = `${scanData.epc}|${po_number}|${item_number}|${scanData.user_id || ''}`;
     const cooldownCheck = await locationTrackingRedis.canProcessScan(
-      scanData.epc
+      compositeKey
     );
 
     let shouldCreateRecord = false;
@@ -60,17 +66,19 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
       const recentRecordQuery = `
         SELECT id, status, created_at
         FROM location_tracker
-        WHERE epc = $1
+        WHERE epc = $1 AND po_number = $2 AND item_number = $3 AND user_id ${scanData.user_id ? '= $4' : 'IS NULL'}
         ORDER BY created_at DESC
         LIMIT 1;
       `;
-      const recentRecordResult = await client.query(recentRecordQuery, [scanData.epc]);
+      const recentRecordParams: any[] = [scanData.epc, po_number, item_number];
+      if (scanData.user_id) recentRecordParams.push(scanData.user_id);
+      const recentRecordResult = await client.query(recentRecordQuery, recentRecordParams);
       if (recentRecordResult.rows.length > 0) {
         const last = recentRecordResult.rows[0];
         const lastCreatedAt = new Date(last.created_at);
         const secondsSinceLast = Math.floor((Date.now() - lastCreatedAt.getTime()) / 1000);
-        if (secondsSinceLast < 30) {
-          // Within 30 seconds → skip creating new record
+        if (secondsSinceLast < 60) {
+          // Within 60 seconds → skip creating new record
           shouldCreateRecord = false;
           trackerRecord = {
             id: last.id,
@@ -83,62 +91,62 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
             created_at: last.created_at,
             updated_at: last.created_at,
           } as ILocationTracker;
-          console.log(`🚫 DB: EPC ${scanData.epc} within 30s (${secondsSinceLast}s) → skipping insert`);
+          console.log(`🚫 DB: Composite ${compositeKey} within 60s (${secondsSinceLast}s) → skipping insert`);
           // Short-circuit: skip toggle/insert path entirely
         }
       }
 
       if (!trackerRecord) {
-      // Can process the scan - check database for last status if Redis doesn't have it
-      let lastStatus = cooldownCheck.lastStatus;
-      
-      if (!lastStatus) {
-        // Get last status from database
-        const lastRecordQuery = `
-          SELECT status, created_at
-          FROM location_tracker
-          WHERE epc = $1
-          ORDER BY created_at DESC
-          LIMIT 1;
-        `;
-        const lastRecordResult = await client.query(lastRecordQuery, [
-          scanData.epc
-        ]);
+        // Can process the scan - check database for last status if Redis doesn't have it
+        let lastStatus = cooldownCheck.lastStatus;
+        
+        if (!lastStatus) {
+          // Get last status from database for this composite
+          const lastRecordQuery = `
+            SELECT status, created_at
+            FROM location_tracker
+            WHERE epc = $1 AND po_number = $2 AND item_number = $3 AND user_id ${scanData.user_id ? '= $4' : 'IS NULL'}
+            ORDER BY created_at DESC
+            LIMIT 1;
+          `;
+          const lastParams: any[] = [scanData.epc, po_number, item_number];
+          if (scanData.user_id) lastParams.push(scanData.user_id);
+          const lastRecordResult = await client.query(lastRecordQuery, lastParams);
 
-        if (lastRecordResult.rows.length > 0) {
-          lastStatus = lastRecordResult.rows[0].status;
-          console.log(`📊 Database: Found last status = ${lastStatus}`);
+          if (lastRecordResult.rows.length > 0) {
+            lastStatus = lastRecordResult.rows[0].status;
+            console.log(`📊 Database: Found last status (composite) = ${lastStatus}`);
+          }
         }
-      }
 
-      if (lastStatus) {
-        // Toggle status from last known status
-        newStatus = lastStatus === 'in' ? 'out' : 'in';
-        console.log(`🔄 Status Toggle: ${lastStatus} → ${newStatus}`);
-      } else {
-        // First time scan, default to 'in'
-        newStatus = 'in';
-        console.log('✨ First scan → creating "in" record');
-      }
+        if (lastStatus) {
+          // Toggle status from last known status
+          newStatus = lastStatus === 'in' ? 'out' : 'in';
+          console.log(`🔄 Status Toggle: ${lastStatus} → ${newStatus}`);
+        } else {
+          // First time scan, default to 'in'
+          newStatus = 'in';
+          console.log('✨ First scan → creating "in" record');
+        }
         shouldCreateRecord = true;
       }
     } else {
       // Still in cooldown period
       shouldCreateRecord = false;
       newStatus = cooldownCheck.lastStatus || 'in';
-      console.log(`🚫 Within 30s cooldown → skipping (${cooldownCheck.timeRemaining}s remaining, last status: ${cooldownCheck.lastStatus})`);
+      console.log(`🚫 Within 60s cooldown → skipping (${cooldownCheck.timeRemaining}s remaining, last status: ${cooldownCheck.lastStatus})`);
       
       // Get the last record from database for response
       const lastRecordQuery = `
         SELECT id, status, created_at
         FROM location_tracker
-        WHERE epc = $1
+        WHERE epc = $1 AND po_number = $2 AND item_number = $3 AND user_id ${scanData.user_id ? '= $4' : 'IS NULL'}
         ORDER BY created_at DESC
         LIMIT 1;
       `;
-      const lastRecordResult = await client.query(lastRecordQuery, [
-        scanData.epc
-      ]);
+      const lastParams: any[] = [scanData.epc, po_number, item_number];
+      if (scanData.user_id) lastParams.push(scanData.user_id);
+      const lastRecordResult = await client.query(lastRecordQuery, lastParams);
 
       if (lastRecordResult.rows.length > 0) {
         const last = lastRecordResult.rows[0];
@@ -176,9 +184,9 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
       trackerRecord = insertResult.rows[0];
       console.log(`✅ Inserted → ID=${trackerRecord.id}, status=${trackerRecord.status}`);
       
-      // Record the scan in Redis for cooldown tracking
+      // Record the scan in Redis for cooldown tracking with composite key
       await locationTrackingRedis.recordScan(
-        scanData.epc,
+        compositeKey,
         newStatus
       );
     }
@@ -189,6 +197,18 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
     if (shouldCreateRecord && trackerRecord?.id) {
       const io = getSocketInstance?.();
       if (io) {
+        // Resolve location name from users table by user_id
+        let userLocationName: string | undefined;
+        if (trackerRecord.user_id) {
+          try {
+            const userRes = await pool.query('SELECT name FROM users WHERE id = $1 LIMIT 1', [trackerRecord.user_id]);
+            userLocationName = userRes.rows[0]?.name;
+          } catch (e) {
+            const err: any = e;
+            console.log('ℹ️ Could not resolve user name for location:', err?.message || err);
+          }
+        }
+
         const activityText = `${trackerRecord.item_number} ${trackerRecord.status.toUpperCase()} (EPC: ${trackerRecord.epc})`;
         io.emit('location-tracker:new-activity', {
           id: trackerRecord.id,
@@ -198,6 +218,7 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
           status: trackerRecord.status,
           epc: trackerRecord.epc,
           user_id: trackerRecord.user_id,
+          location_name: userLocationName,
           created_at: trackerRecord.created_at,
           timestamp: new Date().toISOString(),
           activity_text: activityText,

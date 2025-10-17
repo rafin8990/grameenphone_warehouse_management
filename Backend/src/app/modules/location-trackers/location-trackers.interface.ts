@@ -46,6 +46,7 @@ export type ILocationScanData = {
   epc: string;
   deviceId: string;
   user_id?: number;
+  value?: number; // alternate user_id from reader payload
   rssi?: string;
   count?: number;
   timestamp?: number;
