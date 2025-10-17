@@ -12,6 +12,7 @@ import { DashboardAssetTable } from "@/components/dashboard/assetTable"
 import { PurchaseOrdersTable } from "@/components/dashboard/purchaseOrdersTable"
 import { LiveStockDashboard } from "@/components/dashboard/live-stock-dashboard"
 import { LivePOStatusDashboard } from "@/components/dashboard/live-po-status-dashboard"
+import { LiveItemScanDashboard } from "@/components/dashboard/live-item-scan-dashboard"
 import { Asset } from "@/types/asset"
 // API import removed
 import { toast } from "sonner"
@@ -218,6 +219,11 @@ export default function DashboardPage() {
             statusIcon={assetQuantity.statusIcon}
             chart={assetQuantity.chart}
           />
+        </div>
+
+        {/* Live Item Scan Dashboard */}
+        <div className="mb-8">
+          <LiveItemScanDashboard isConnected={isConnected} />
         </div>
 
         {/* Live Stock Dashboard */}

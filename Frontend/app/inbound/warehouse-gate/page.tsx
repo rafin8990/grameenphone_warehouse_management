@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/layout/page-header';
-import { Radio, Package, Hash, Clock, MapPin, ArrowRight, ArrowLeft, TestTube } from 'lucide-react';
+import { Radio, Package, Hash, Clock, MapPin, ArrowRight, ArrowLeft, TestTube, Activity } from 'lucide-react';
 import { getSocket } from '@/lib/socket';
 
 interface IUnifiedEvent {
@@ -32,7 +32,6 @@ interface IUnifiedEvent {
 export default function WarehouseGatePage() {
   const [events, setEvents] = useState<IUnifiedEvent[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [lastEvent, setLastEvent] = useState<IUnifiedEvent | null>(null);
   const [isTesting, setIsTesting] = useState(false);
 
   useEffect(() => {
@@ -75,7 +74,6 @@ export default function WarehouseGatePage() {
         location_name: unifiedEvent.location_name,
         location_status: unifiedEvent.location_status
       });
-      setLastEvent(unifiedEvent);
       setEvents(prev => [unifiedEvent, ...prev].slice(0, 100)); // Keep last 100 events
     });
 
@@ -97,7 +95,6 @@ export default function WarehouseGatePage() {
         timestamp: data.timestamp || data.created_at
       };
       console.log('📍 Processed location event:', unifiedEvent);
-      setLastEvent(unifiedEvent);
       setEvents(prev => [unifiedEvent, ...prev].slice(0, 100)); // Keep last 100 events
     });
 
@@ -119,7 +116,6 @@ export default function WarehouseGatePage() {
         epc: data.epc,
         timestamp: data.timestamp || data.updated_at
       };
-      setLastEvent(unifiedEvent);
       setEvents(prev => [unifiedEvent, ...prev].slice(0, 100)); // Keep last 100 events
     });
 
@@ -148,21 +144,7 @@ export default function WarehouseGatePage() {
         return updatedEvents;
       });
       
-      // Also update the last event if it matches
-      setLastEvent(prev => {
-        if (prev && prev.po_number === data.po_number && 
-            prev.item_number === data.item_number && 
-            prev.type === 'scan') {
-          console.log('📍 Updating last event status from', prev.location_status, 'to', data.location_status);
-          return {
-            ...prev,
-            location_status: data.location_status,
-            location_code: data.location_code,
-            location_name: data.location_name
-          };
-        }
-        return prev;
-      });
+      // Note: Individual events are now tracked in the events array, no need to update lastEvent
     });
 
     return () => {
@@ -496,195 +478,112 @@ export default function WarehouseGatePage() {
           ]}
         />
 
-        {/* Connection Status */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">RFID Scanner Status</CardTitle>
-              <div className="flex items-center gap-2">
-                <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                <Badge variant={isConnected ? "default" : "destructive"}>
-                  {isConnected ? 'Connected' : 'Disconnected'}
-                </Badge>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button 
-                onClick={testRealRfidScan} 
-                disabled={isTesting}
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <TestTube className="h-4 w-4" />
-                {isTesting ? 'Testing...' : 'Real Scan Test'}
-              </Button>
-              
-              <Button 
-                onClick={testRfidScanWithLocation} 
-                disabled={isTesting}
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <TestTube className="h-4 w-4" />
-                {isTesting ? 'Testing...' : 'RFID Scan Test'}
-              </Button>
-              
-              <Button 
-                onClick={testLocationTracking} 
-                disabled={isTesting}
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <TestTube className="h-4 w-4" />
-                {isTesting ? 'Testing...' : 'Location Test'}
-              </Button>
-              
-              <Button 
-                onClick={testQuickToggle} 
-                disabled={isTesting}
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <TestTube className="h-4 w-4" />
-                {isTesting ? 'Testing...' : 'Quick Toggle'}
-              </Button>
-              
-              <Button 
-                onClick={testMultipleScans} 
-                disabled={isTesting}
-                variant="outline"
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <TestTube className="h-4 w-4" />
-                {isTesting ? 'Testing...' : 'Full Toggle Test'}
-              </Button>
-              
-              <p className="text-xs text-gray-500">
-                Real Scan: No deviceId | RFID Scan: With deviceId | Location: Basic test | Quick Toggle: Fast test | Full Toggle: 35s test
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+       
 
-        {/* Latest Event Display */}
-        {lastEvent && (
-          <Card className={`border-2 ${lastEvent.isDuplicate ? 'border-orange-500 bg-orange-50' : lastEvent.type === 'location' ? (lastEvent.status === 'in' ? 'border-green-500 bg-green-50' : 'border-blue-500 bg-blue-50') : 'border-purple-500 bg-purple-50'}`}>
+        {/* Recent Events Summary */}
+        {events.length > 0 && (
+          <Card className="border-2 border-blue-500 bg-blue-50">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
-                <div className={`p-1 rounded-full ${getEventBgColor(lastEvent)}`}>
-                  <div className={getEventColor(lastEvent)}>
-                    {getEventIcon(lastEvent)}
-                  </div>
-                </div>
-                {getEventTitle(lastEvent)}
-                {lastEvent.isDuplicate && (
-                  <Badge variant="outline" className="bg-orange-100 text-orange-700 border-orange-300">
-                    Duplicate - Already Counted
-                  </Badge>
-                )}
-                {lastEvent.type === 'location' && (
-                  <Badge variant="outline" className={getLocationStatusColor(lastEvent)}>
-                    {getLocationStatusText(lastEvent)}
-                  </Badge>
-                )}
+                <Activity className="h-5 w-5 text-blue-600" />
+                Recent Activity Summary
+                <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
+                  {events.length} Events
+                </Badge>
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-xs text-gray-600 mb-1">PO Number</p>
-                  <p className="text-xl font-bold font-mono">{lastEvent.po_number}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-600 mb-1">Item Number</p>
-                  <p className="text-lg font-semibold font-mono">{lastEvent.item_number}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-600 mb-1">
-                    {lastEvent.ordered_quantity ? 'Received / Ordered' : 'Quantity'}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="text-center p-4 bg-white rounded-lg border">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Total Scans</p>
+                  <p className="text-4xl font-bold text-green-600 mb-2">
+                    {events.filter(e => e.type === 'scan' && !e.isDuplicate).length}
                   </p>
-                  {lastEvent.ordered_quantity ? (
-                    <div className="flex items-center gap-2">
-                      <p className="text-2xl font-bold text-green-600">{(lastEvent.quantity || 0).toLocaleString()}</p>
-                      <span className="text-gray-400">/</span>
-                      <p className="text-xl font-semibold text-blue-600">{(lastEvent.ordered_quantity || 0).toLocaleString()}</p>
-                    </div>
-                  ) : (
-                    <p className="text-2xl font-bold text-green-600">{(lastEvent.quantity || 0).toLocaleString()}</p>
-                  )}
-                  {lastEvent.scanned_quantity && (
-                    <p className="text-xs text-gray-500">+{lastEvent.scanned_quantity} this scan</p>
-                  )}
-                  {lastEvent.remaining_quantity !== undefined && (
-                    <p className="text-xs text-orange-600">
-                      {lastEvent.remaining_quantity > 0 ? `${lastEvent.remaining_quantity} remaining` : 'Complete!'}
-                    </p>
-                  )}
-                  {lastEvent.ordered_quantity && (
-                    <div className="mt-2">
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div 
-                          className="bg-green-500 h-2 rounded-full transition-all duration-300" 
-                          style={{ 
-                            width: `${Math.min(((lastEvent.quantity || 0) / (lastEvent.ordered_quantity || 1)) * 100, 100)}%` 
-                          }}
-                        ></div>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {Math.round(((lastEvent.quantity || 0) / (lastEvent.ordered_quantity || 1)) * 100)}% complete
-                      </p>
-                    </div>
-                  )}
+                  <p className="text-sm text-gray-600">Unique scans</p>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-600 mb-1">Time</p>
-                  <p className="text-lg font-semibold">{formatTime(lastEvent.timestamp)}</p>
+                <div className="text-center p-4 bg-white rounded-lg border">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Duplicate Scans</p>
+                  <p className="text-4xl font-bold text-orange-600 mb-2">
+                    {events.filter(e => e.type === 'scan' && e.isDuplicate).length}
+                  </p>
+                  <p className="text-sm text-gray-600">Ignored scans</p>
+                </div>
+                <div className="text-center p-4 bg-white rounded-lg border">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Purchase Orders</p>
+                  <p className="text-4xl font-bold text-blue-600 mb-2">
+                    {new Set(events.filter(e => e.type === 'scan' && !e.isDuplicate).map(e => e.po_number)).size}
+                  </p>
+                  <p className="text-sm text-gray-600 mb-2">Active POs</p>
+                  <div className="text-sm text-gray-700 font-medium">
+                    {Array.from(new Set(events.filter(e => e.type === 'scan' && !e.isDuplicate).map(e => e.po_number))).slice(0, 2).join(', ')}
+                    {new Set(events.filter(e => e.type === 'scan' && !e.isDuplicate).map(e => e.po_number)).size > 2 && '...'}
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-white rounded-lg border">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Locations</p>
+                  <p className="text-4xl font-bold text-purple-600 mb-2">
+                    {new Set(events.filter(e => e.type === 'scan' && !e.isDuplicate).map(e => e.location_name || e.location_code).filter(Boolean)).size}
+                  </p>
+                  <p className="text-sm text-gray-600 mb-2">Active locations</p>
+                  <div className="text-sm text-gray-700 font-medium">
+                    {Array.from(new Set(events.filter(e => e.type === 'scan' && !e.isDuplicate).map(e => e.location_name || e.location_code).filter(Boolean))).slice(0, 2).join(', ')}
+                    {new Set(events.filter(e => e.type === 'scan' && !e.isDuplicate).map(e => e.location_name || e.location_code).filter(Boolean)).size > 2 && '...'}
+                  </div>
                 </div>
               </div>
-              <div className="mt-4 pt-4 border-t">
-                {lastEvent.item_description && (
-                  <div className="mb-2">
-                    <p className="text-xs text-gray-600 mb-1">Item Description</p>
-                    <p className="text-sm font-medium">{lastEvent.item_description}</p>
-                  </div>
-                )}
-                <div className="mb-2">
-                  <p className="text-xs text-gray-600 mb-1">Location</p>
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-blue-500" />
-                    <span className="text-blue-700 font-semibold">
-                      {lastEvent.location_name || lastEvent.location_code || 'Unknown Location'}
-                    </span>
-                    {lastEvent.location_code && lastEvent.location_name && lastEvent.location_code !== lastEvent.location_name && (
-                      <span className="text-gray-500 text-xs">({lastEvent.location_code})</span>
-                    )}
-                    <Badge 
-                      variant="outline" 
-                      className={`text-xs ${getLocationStatusBadgeColor(lastEvent)}`}
-                    >
-                      {getLocationStatusText(lastEvent)}
-                    </Badge>
-                  </div>
+              <div className="mt-6 pt-6 border-t">
+                <p className="text-lg font-semibold text-gray-700 mb-4">Latest Unique Items:</p>
+                <div className="space-y-3">
+                  {events
+                    .filter(e => e.type === 'scan' && !e.isDuplicate)
+                    .reduce((unique, event) => {
+                      const key = `${event.item_number}-${event.po_number}`;
+                      if (!unique.find(e => `${e.item_number}-${e.po_number}` === key)) {
+                        unique.push(event);
+                      }
+                      return unique;
+                    }, [] as IUnifiedEvent[])
+                    .slice(0, 3)
+                    .map((event, index) => (
+                    <div key={event.id || index} className="flex items-center justify-between p-4 bg-white rounded-lg border hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-full ${getEventBgColor(event)}`}>
+                          <div className={getEventColor(event)}>
+                            {getEventIcon(event)}
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-lg font-semibold text-gray-900">{event.item_number}</span>
+                          <div className="text-sm text-gray-600 mt-1">
+                            <span className="text-gray-500">
+                              ({event.item_description || event.po_number})
+                            </span>
+                            <span className="text-blue-600 font-medium ml-2">
+                              [{event.po_number}]
+                            </span>
+                            <span className="text-purple-600 font-medium ml-2">
+                              @{event.location_name || event.location_code || 'Unknown'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm text-gray-700 mb-2">
+                          {event.ordered_quantity && event.quantity ? (
+                            <span>
+                              <span className="text-green-600 font-bold text-lg">{event.quantity.toLocaleString()}</span>
+                              <span className="text-gray-400 mx-1">/</span>
+                              <span className="text-blue-600 font-bold text-lg">{event.ordered_quantity.toLocaleString()}</span>
+                            </span>
+                          ) : (
+                            <span className="text-green-600 font-bold text-lg">{event.quantity?.toLocaleString() || 'N/A'}</span>
+                          )}
+                        </div>
+                        <span className="text-sm text-gray-500 font-medium">{formatTime(event.timestamp)}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                {lastEvent.lot_no && (
-                  <div className="mb-2">
-                    <p className="text-xs text-gray-600 mb-1">Lot Number</p>
-                    <p className="text-sm font-medium font-mono">{lastEvent.lot_no}</p>
-                  </div>
-                )}
-                {lastEvent.epc && (
-                  <div>
-                    <p className="text-xs text-gray-600 mb-1">EPC</p>
-                    <p className="text-sm font-medium font-mono">{lastEvent.epc}</p>
-                  </div>
-                )}
               </div>
             </CardContent>
           </Card>
@@ -693,90 +592,125 @@ export default function WarehouseGatePage() {
         {/* Unified Event History */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
+            <CardTitle className="flex items-center gap-3 text-xl">
+              <Clock className="h-6 w-6" />
               Live Event Feed ({events.length})
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-base">
               Real-time feed of all warehouse events (scans, location tracking, stock updates)
             </CardDescription>
           </CardHeader>
           <CardContent>
             {events.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <Clock className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                <p className="text-lg font-medium">Waiting for events...</p>
-                <p className="text-sm">All warehouse events will appear here in real-time</p>
+              <div className="text-center py-8 text-gray-500">
+                <Clock className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                <p className="text-sm font-medium">Waiting for events...</p>
+                <p className="text-xs">All warehouse events will appear here in real-time</p>
               </div>
             ) : (
-              <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                {events.map((event, index) => (
-                  <div 
-                    key={event.id || index} 
-                    className={`p-4 rounded-lg border transition-all ${
-                      index === 0 ? 'bg-green-50 border-green-300 animate-pulse' : 'bg-white'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-full ${getEventBgColor(event)}`}>
-                          <div className={getEventColor(event)}>
-                            {getEventIcon(event)}
+              <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-white border-b">
+                    <tr>
+                      <th className="text-left p-2 font-medium text-gray-600 text-xs">Time</th>
+                      <th className="text-left p-2 font-medium text-gray-600 text-xs">PO Number</th>
+                      <th className="text-left p-2 font-medium text-gray-600 text-xs">Item</th>
+                      <th className="text-left p-2 font-medium text-gray-600 text-xs">Description</th>
+                      <th className="text-right p-2 font-medium text-gray-600 text-xs">Ordered</th>
+                      <th className="text-right p-2 font-medium text-gray-600 text-xs">Received</th>
+                      <th className="text-right p-2 font-medium text-gray-600 text-xs">Scanned</th>
+                      <th className="text-right p-2 font-medium text-gray-600 text-xs">Remaining</th>
+                      <th className="text-center p-2 font-medium text-gray-600 text-xs">Status</th>
+                      <th className="text-left p-2 font-medium text-gray-600 text-xs">Location</th>
+                      <th className="text-left p-2 font-medium text-gray-600 text-xs">EPC</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {events.map((event, index) => (
+                      <tr 
+                        key={event.id || index} 
+                        className={`border-b hover:bg-gray-50 transition-all ${
+                          index === 0 ? 'bg-green-50 animate-pulse' : ''
+                        } ${index < 5 ? 'bg-blue-50' : ''}`}
+                      >
+                        <td className="p-2">
+                          <div className="text-xs">
+                            <p className="font-medium">{formatTime(event.timestamp)}</p>
+                            <p className="text-xs text-gray-500">{formatDate(event.timestamp)}</p>
                           </div>
-                        </div>
-                        <div>
-                          <p className="font-medium">
-                            {event.item_number}
-                            {event.location_code && (
-                              <span className="text-sm text-gray-500 ml-2">
-                                ({event.location_code})
-                              </span>
-                            )}
+                        </td>
+                        <td className="p-2">
+                          <span className="font-mono text-xs text-blue-600 font-medium">
+                            {event.po_number}
+                          </span>
+                        </td>
+                        <td className="p-2">
+                          <div className="flex items-center gap-1">
+                            <div className={`p-1 rounded-full ${getEventBgColor(event)}`}>
+                              <div className={getEventColor(event)}>
+                                {getEventIcon(event)}
+                              </div>
+                            </div>
+                            <span className="font-mono text-xs font-semibold">
+                              {event.item_number}
+                            </span>
                             {event.isDuplicate && (
-                              <Badge variant="outline" className="ml-2 text-xs bg-orange-100 text-orange-700 border-orange-300">
+                              <Badge variant="outline" className="text-xs bg-orange-100 text-orange-700 border-orange-300">
                                 Duplicate
                               </Badge>
                             )}
-                          </p>
-                          <p className="text-sm text-gray-600">
-                            {event.po_number} • Qty: {event.quantity}
-                            <span className="ml-2 text-blue-600 font-medium flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {event.location_name || event.location_code || 'Unknown Location'}
-                              <Badge 
-                                variant="outline" 
-                                className={`text-xs ml-1 ${getLocationStatusBadgeColor(event)}`}
-                              >
-                                {getLocationStatusText(event)}
-                              </Badge>
+                          </div>
+                        </td>
+                        <td className="p-2">
+                          <div className="max-w-xs truncate" title={event.item_description}>
+                            <span className="text-xs">{event.item_description || 'N/A'}</span>
+                          </div>
+                        </td>
+                        <td className="p-2 text-right">
+                          <span className="text-xs text-blue-600 font-semibold">
+                            {event.ordered_quantity ? event.ordered_quantity.toLocaleString() : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="p-2 text-right">
+                          <span className="text-xs text-green-600 font-semibold">
+                            {event.quantity ? event.quantity.toLocaleString() : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="p-2 text-right">
+                          <span className="text-xs text-purple-600 font-semibold">
+                            {event.scanned_quantity ? `+${event.scanned_quantity.toLocaleString()}` : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="p-2 text-right">
+                          <span className="text-xs text-orange-600 font-semibold">
+                            {event.remaining_quantity !== undefined ? event.remaining_quantity.toLocaleString() : 'N/A'}
+                          </span>
+                        </td>
+                        <td className="p-2 text-center">
+                          <Badge 
+                            variant="outline" 
+                            className={`text-xs ${getLocationStatusBadgeColor(event)}`}
+                          >
+                            {getLocationStatusText(event)}
+                          </Badge>
+                        </td>
+                        <td className="p-2">
+                          <div className="flex items-center gap-1">
+                            <MapPin className="h-2 w-2 text-blue-500" />
+                            <span className="text-xs">
+                              {event.location_name || event.location_code || 'Unknown'}
                             </span>
-                            {event.lot_no && (
-                              <span className="ml-2 text-gray-500">• Lot: {event.lot_no}</span>
-                            )}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <Badge 
-                          variant={event.type === 'scan' ? (event.isDuplicate ? 'secondary' : 'default') : 
-                                  event.type === 'location' ? (event.status === 'in' ? 'default' : 'secondary') : 
-                                  'outline'}
-                          className={event.type === 'scan' && !event.isDuplicate ? 'bg-green-100 text-green-700' :
-                                    event.type === 'location' && event.status === 'in' ? 'bg-green-100 text-green-700' :
-                                    event.type === 'location' && event.status === 'out' ? 'bg-blue-100 text-blue-700' :
-                                    event.type === 'stock' ? 'bg-purple-100 text-purple-700' : ''}
-                        >
-                          {event.type === 'scan' ? (event.isDuplicate ? 'DUPLICATE' : 'SCAN') :
-                           event.type === 'location' ? getLocationStatusText(event) :
-                           event.type === 'stock' ? 'STOCK UPDATE' : 'EVENT'}
-                        </Badge>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {formatTime(event.timestamp)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                          </div>
+                        </td>
+                        <td className="p-2">
+                          <span className="font-mono text-xs text-gray-500">
+                            {event.epc ? `${event.epc.substring(0, 8)}...` : 'N/A'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </CardContent>
