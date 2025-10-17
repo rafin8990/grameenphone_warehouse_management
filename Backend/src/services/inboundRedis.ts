@@ -139,6 +139,36 @@ const getLocationTrackerTTL = async (epc: string, po_number: string, item_number
   return await redisClient.ttl(key);
 };
 
+// New function to check if EPC+item combination already exists in inbound JSON
+const checkInboundJsonDuplicate = async (epc: string, item_number: string, po_number: string): Promise<boolean> => {
+  const key = `inbound_json:${po_number}:${epc}:${item_number}`;
+  const existingData = await redisClient.get(key);
+  return existingData !== null;
+};
+
+// New function to set EPC+item combination as processed in inbound JSON
+const setInboundJsonDuplicate = async (epc: string, item_number: string, po_number: string): Promise<void> => {
+  const key = `inbound_json:${po_number}:${epc}:${item_number}`;
+  const data = {
+    epc,
+    item_number,
+    po_number,
+    timestamp: Date.now()
+  };
+  await redisClient.set(key, JSON.stringify(data), 3600); // 1 hour TTL
+};
+
+// Function to clear all inbound JSON duplicate flags (for testing)
+const clearInboundJsonDuplicates = async (): Promise<void> => {
+  const pattern = `inbound_json:*`;
+  const keys = await redisClient.keys(pattern);
+  if (keys.length > 0) {
+    for (const key of keys) {
+      await redisClient.del(key);
+    }
+  }
+};
+
 // Export functional API
 const inboundRedis = {
   checkDuplicate,
@@ -155,7 +185,11 @@ const inboundRedis = {
   // Location Tracker functions
   checkLocationTrackerDuplicate,
   setLocationTrackerDuplicate,
-  getLocationTrackerTTL
+  getLocationTrackerTTL,
+  // Inbound JSON duplicate functions
+  checkInboundJsonDuplicate,
+  setInboundJsonDuplicate,
+  clearInboundJsonDuplicates
 };
 
 export default inboundRedis;

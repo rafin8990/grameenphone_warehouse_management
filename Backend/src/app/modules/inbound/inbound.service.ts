@@ -8,6 +8,7 @@ import { IInbound, IInboundFilters, IRfidScanData } from './inbound.interface';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { StockService } from '../stock/stock.service';
 import inboundRedis from '../../../services/inboundRedis';
+import { getBangladeshTimeISO } from '../../../shared/timezone';
 
 // Get socket instance dynamically to avoid import issues
 const getSocketInstance = () => {
@@ -20,15 +21,18 @@ const getSocketInstance = () => {
   }
 };
 
+
 // Process RFID scan and create/update inbound record
 const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
+    // Will acquire advisory lock after resolving po_number from EPC
+
     console.log('📡 Processing RFID scan:', scanData);
 
-    // Step 1: Parse user_id from value field (ensure numeric for DB comparisons)
+    // Step 1: Parse user_id from value field
     const user_id = Number(scanData.value);
     if (!user_id) {
       throw new ApiError(
@@ -37,7 +41,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       );
     }
 
-    // Step 2: Find hex code in po_hex_codes table using EPC
+    // Step 2: Get EPC details from po_hex_codes table
     const hexCodeQuery = `
       SELECT po_number, lot_no, item_number, quantity
       FROM po_hex_codes
@@ -56,7 +60,10 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     const hexCodeData = hexCodeResult.rows[0];
     const { po_number, lot_no, item_number, quantity } = hexCodeData;
 
-    // Step 3: Get purchase order details with items array
+    // Acquire advisory lock per PO to serialize concurrent scans for same PO
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [po_number]);
+
+    // Step 3: Get purchase order details
     const poQuery = `
       SELECT 
         po.po_number, 
@@ -124,223 +131,81 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     const userData = userResult.rows[0];
     const location_name = userData.name; // User's name becomes location name
 
-    // Step 6: Check Redis for EPC+item+PO duplicate within 60 seconds (1 minute)
-    let isInboundDuplicate = false;
-    if (await inboundRedis.checkConnection()) {
-      const isDuplicate = await inboundRedis.checkDuplicate(scanData.epc, item_number, po_number);
-      if (isDuplicate) {
-        console.log(`⚠️ Redis: Duplicate EPC+item+PO combination within 60s: ${scanData.epc}+${item_number}+${po_number} - Will skip processing entirely`);
-        isInboundDuplicate = true;
-        // Return early for true duplicates to prevent double processing
-        return null;
-      } else {
-        // Set duplicate check with 60 second expiry
-        await inboundRedis.setDuplicateCheck(scanData.epc, item_number, po_number);
-        
-        // Store inbound scan data for tracking
-        await inboundRedis.storeInboundScan({
-          epc: scanData.epc,
-          item_number,
-          po_number,
-          quantity: Number(quantity),
-          timestamp: Date.now()
-        });
-      }
-    }
+    // Step 6: Proceed without Redis gating; rely on DB JSON checks for duplicates
+    let shouldProcessInbound = true;
 
-    // Step 7: Create/update inbound JSON structure
-    // Check if there's any existing inbound record for this PO
-    const inboundQuery = `
-      SELECT id, items
-      FROM inbound
-      WHERE po_number = $1
+    // Step 7: Process Inbound JSON via shared manual creator
+    let inboundRecord: IInbound | null = null;
+    let items: any[] = [];
+    if (shouldProcessInbound) {
+      const createdRec = await createInboundManual({
+        po_number,
+        item_number,
+        item_description: itemData.item_description,
+        lot_no,
+        epc: scanData.epc,
+        quantity: Number(quantity),
+      });
+      inboundRecord = createdRec as IInbound;
+      const createdItems: any = (createdRec as any)?.items;
+      items = Array.isArray(createdItems) ? createdItems : JSON.parse(createdItems as any);
+    } 
+    // Step 8: Location Tracker Processing (60 second cooldown for same EPC+item_number+user_id)
+    let shouldCreateLocationTracker = true;
+    let newStatus: 'in' | 'out' = 'in';
+
+    // Check if same EPC+user_id+item_number exists
+    const locationTrackerQuery = `
+      SELECT id, status, created_at
+      FROM location_tracker
+      WHERE epc = $1 AND user_id = $2 AND item_number = $3
       ORDER BY created_at DESC
       LIMIT 1;
     `;
-    const inboundResult = await client.query(inboundQuery, [po_number]);
+    const trackerResult = await client.query(locationTrackerQuery, [
+      scanData.epc, user_id, item_number
+    ]);
 
-    let inboundRecord: IInbound | null = null;
-    let items: any[] = [];
-
-    if (inboundResult.rows.length === 0) {
-      // Create new inbound record with JSON structure
-      const orderedQuantity = poData.po_items_array?.find((item: any) => item.item_number === item_number)?.quantity || 0;
-      const newItem = {
-        item_number,
-        item_description: itemData.item_description,
-        quantity: Number(quantity), // Received quantity
-        ordered_quantity: Number(orderedQuantity), // Ordered quantity from PO
-        lot_no: lot_no,
-        epc: scanData.epc // Include EPC for duplicate checking
-      };
-
-      items = [newItem];
+    if (trackerResult.rows.length > 0) {
+      const lastRecord = trackerResult.rows[0];
+      const timeDiff = Date.now() - new Date(lastRecord.created_at).getTime();
       
-      // Ensure items is properly initialized
-      if (!Array.isArray(items)) {
-        items = [];
-      }
-
-      const insertQuery = `
-        INSERT INTO inbound (po_number, items, received_at)
-        VALUES ($1, $2, CURRENT_DATE)
-        RETURNING *;
-      `;
-
-      const insertResult = await client.query(insertQuery, [
-        po_number,
-        JSON.stringify(items),
-      ]);
-
-      inboundRecord = insertResult.rows[0];
-      if (inboundRecord) {
-        inboundRecord.items = Array.isArray(inboundRecord.items) 
-          ? inboundRecord.items 
-          : JSON.parse(inboundRecord.items as any);
-        
-        console.log('✨ New inbound created:', { 
-          id: inboundRecord.id, 
-          po_number, 
-          item: item_number,
-          ordered: orderedQuantity,
-          received: Number(quantity)
-        });
+      if (timeDiff < 60000) { // 60 seconds cooldown
+        console.log(`⚠️ Location tracker cooldown active for EPC ${scanData.epc} - ${Math.round((60000 - timeDiff) / 1000)}s remaining`);
+        shouldCreateLocationTracker = false;
+      } else {
+        // Toggle status after 30 seconds
+        newStatus = lastRecord.status === 'in' ? 'out' : 'in';
+        console.log(`🔄 Location tracker status toggle: ${lastRecord.status} → ${newStatus}`);
       }
     } else {
-      // Update existing inbound record
-      const existingInbound = inboundResult.rows[0];
-      items = Array.isArray(existingInbound.items)
-        ? existingInbound.items
-        : JSON.parse(existingInbound.items as any);
-      
-      // Ensure items is an array
-      if (!Array.isArray(items)) {
-        items = [];
-      }
-      
-      console.log('📦 Existing inbound found:', { id: existingInbound.id, items_count: items.length });
-
-      // Check if same EPC+item_number combination already exists
-      const existingEpcItemIndex = items.findIndex(
-        (item) => item.item_number === item_number && item.epc === scanData.epc
-      );
-
-      if (existingEpcItemIndex !== -1) {
-        // Same EPC+item combination exists - ignore this scan
-        console.log(`⚠️ Duplicate EPC+item combination ignored: ${scanData.epc}+${item_number} - Quantity not added to inbound`);
-        // Don't update inbound record for duplicate EPC+item
-        inboundRecord = existingInbound;
-        if (inboundRecord) {
-          inboundRecord.items = Array.isArray(inboundRecord.items)
-            ? inboundRecord.items
-            : JSON.parse(inboundRecord.items as any);
-        }
-      } else {
-        // Different EPC - always add as separate entry
-        const orderedQuantity = poData.po_items_array?.find((item: any) => item.item_number === item_number)?.quantity || 0;
-        items.push({
-          item_number,
-          item_description: itemData.item_description,
-          quantity: Number(quantity), // Received quantity
-          ordered_quantity: Number(orderedQuantity), // Ordered quantity from PO
-          lot_no: lot_no,
-          epc: scanData.epc // Include EPC for tracking
-        });
-        console.log(`✨ New EPC entry added: ${item_number} (EPC: ${scanData.epc}) - Ordered: ${orderedQuantity}, Received: ${Number(quantity)}`);
-        console.log(`📊 Total entries for item ${item_number}: ${items.filter(item => item.item_number === item_number).length}`);
-
-        // Update inbound record only if not a duplicate EPC+item
-        const updateQuery = `
-          UPDATE inbound
-          SET items = $1, updated_at = CURRENT_TIMESTAMP
-          WHERE id = $2
-          RETURNING *;
-        `;
-
-        const updateResult = await client.query(updateQuery, [
-          JSON.stringify(items),
-          existingInbound.id,
-        ]);
-
-        inboundRecord = updateResult.rows[0];
-        if (inboundRecord) {
-          inboundRecord.items = Array.isArray(inboundRecord.items)
-            ? inboundRecord.items
-            : JSON.parse(inboundRecord.items as any);
-          
-          console.log('✅ Inbound updated:', { id: inboundRecord.id, items_count: inboundRecord.items.length });
-        }
-      }
+      console.log(`📍 First time location tracking for EPC ${scanData.epc} - status: in`);
     }
 
-    // Step 8: Location tracking with Redis duplicate check for same EPC+PO+item+location
-    let isLocationTrackerDuplicate = false;
-    let shouldCreateLocationTracker = true;
-    let newStatus: 'in' | 'out' = 'in'; // Default to 'in' for first time
-
-    // Check Redis for location tracker duplicate (EPC+PO+item+location combination)
-    if (await inboundRedis.checkConnection()) {
-      const isLocationDuplicate = await inboundRedis.checkLocationTrackerDuplicate(scanData.epc, po_number, item_number, String(user_id));
-      if (isLocationDuplicate) {
-        const ttl = await inboundRedis.getLocationTrackerTTL(scanData.epc, po_number, item_number, String(user_id));
-        console.log(`⚠️ Redis: Location tracker duplicate within 60s: ${scanData.epc}+${po_number}+${item_number}+${user_id} - ${ttl}s remaining`);
-        isLocationTrackerDuplicate = true;
-        shouldCreateLocationTracker = false;
-      }
-    }
-
-    // If not a Redis duplicate, check database for status toggle logic
-    if (!isLocationTrackerDuplicate) {
-      const locationTrackerQuery = `
-        SELECT id, status, created_at
-        FROM location_tracker
-        WHERE epc = $1 AND user_id = $2 AND po_number = $3 AND item_number = $4
-        ORDER BY created_at DESC
-        LIMIT 1;
-      `;
-      const trackerResult = await client.query(locationTrackerQuery, [
-        scanData.epc, user_id, po_number, item_number
-      ]);
-
-      if (trackerResult.rows.length > 0) {
-        const lastRecord = trackerResult.rows[0];
-        const timeDiff = Date.now() - new Date(lastRecord.created_at).getTime();
-        
-        if (timeDiff < 60000) { // 60 seconds (1 minute) cooldown for location tracker
-          console.log(`⚠️ Location tracker cooldown active for EPC ${scanData.epc} - ${Math.round((60000 - timeDiff) / 1000)}s remaining`);
-          shouldCreateLocationTracker = false;
-        } else {
-          // Toggle status after 60 seconds
-          newStatus = lastRecord.status === 'in' ? 'out' : 'in';
-          console.log(`🔄 Location tracker status toggle: ${lastRecord.status} → ${newStatus}`);
-        }
-      } else {
-        console.log(`📍 First time location tracking for EPC ${scanData.epc} - status: in`);
-      }
-    }
-
-    // Insert location tracker record only if not duplicate and cooldown has passed
+    // Insert location tracker record
     let trackerInsertResult = null;
     if (shouldCreateLocationTracker) {
       const insertTrackerQuery = `
-        INSERT INTO location_tracker (epc, user_id, po_number, item_number, quantity, status)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO location_tracker (epc, user_id, po_number, item_number, quantity, status, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
         RETURNING *;
       `;
       trackerInsertResult = await client.query(insertTrackerQuery, [
-        scanData.epc, user_id, po_number, item_number, Number(quantity), newStatus
+        scanData.epc, 
+        user_id, 
+        po_number, 
+        item_number, 
+        Number(quantity), 
+        newStatus,
+        getBangladeshTimeISO()
       ]);
-      // Set Redis duplicate key only after a successful insert
-      if (await inboundRedis.checkConnection()) {
-        await inboundRedis.setLocationTrackerDuplicate(scanData.epc, po_number, item_number, String(user_id));
-      }
-      console.log(`📊 Location tracker created: status=${newStatus}, location=${location_name}`);
+      
+      console.log(`📊 Location tracker created: status=${newStatus}, location=${location_name}, EPC=${scanData.epc}, User=${user_id}`);
     } else {
-      console.log(`⏳ Location tracker skipped due to ${isLocationTrackerDuplicate ? 'Redis duplicate' : 'cooldown'}`);
+      console.log(`⏳ Location tracker skipped due to 30s cooldown for EPC+user+PO+qty: ${scanData.epc}+${user_id}+${po_number}+${quantity}`);
     }
 
-    // Step 9: Stock update with EPC+item+lot rules
-    // Stock update always works regardless of Redis duplicate check
+    // Step 9: Stock Processing
     const stockQuery = `
       SELECT id, quantity
       FROM stocks
@@ -349,8 +214,16 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     const stockResult = await client.query(stockQuery, [scanData.epc, item_number, lot_no]);
 
     if (stockResult.rows.length > 0) {
-      // Same EPC+item+lot - ignore duplicate
-      console.log(`⚠️ Stock duplicate ignored: same EPC+item+lot combination`);
+      // Same EPC+item+lot already exists → guard with Redis and ignore repeats
+      if (await inboundRedis.checkConnection()) {
+        const isStockProcessed = await inboundRedis.checkDuplicate(scanData.epc, item_number, po_number);
+        if (isStockProcessed) {
+          console.log(`⚠️ Stock duplicate ignored via Redis: same EPC+item+lot combination`);
+        } else {
+          await inboundRedis.setDuplicateCheck(scanData.epc, item_number, po_number);
+          console.log(`✅ Stock Redis flag set for existing combo: ${scanData.epc}+${item_number}+${lot_no}`);
+        }
+      }
     } else {
       // Check for different EPC but same item+lot
       const similarStockQuery = `
@@ -361,37 +234,69 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       const similarStockResult = await client.query(similarStockQuery, [item_number, lot_no, scanData.epc]);
 
       if (similarStockResult.rows.length > 0) {
-        // Different EPC, same item+lot - add quantity
-        const stockId = similarStockResult.rows[0].id;
-        const currentQuantity = similarStockResult.rows[0].quantity;
-        const newQuantity = currentQuantity + Number(quantity);
+        // Different EPC, same item+lot - add quantity ONCE per EPC using Redis guard
+        if (await inboundRedis.checkConnection()) {
+          const isStockProcessed = await inboundRedis.checkDuplicate(scanData.epc, item_number, po_number);
+          if (isStockProcessed) {
+            console.log(`⚠️ Stock add ignored (already added for this EPC+item+PO)`);
+          } else {
+            await inboundRedis.setDuplicateCheck(scanData.epc, item_number, po_number);
+            const stockId = similarStockResult.rows[0].id;
+            const currentQuantity = similarStockResult.rows[0].quantity;
+            const newQuantity = currentQuantity + Number(quantity);
 
-        const updateStockQuery = `
-          UPDATE stocks
-          SET quantity = $1, updated_at = CURRENT_TIMESTAMP
-          WHERE id = $2
-          RETURNING *;
-        `;
-        await client.query(updateStockQuery, [newQuantity, stockId]);
-        console.log(`📈 Stock quantity updated: ${currentQuantity} → ${newQuantity} for ${item_number} (${lot_no})`);
+            const updateStockQuery = `
+              UPDATE stocks
+              SET quantity = $1, updated_at = $3
+              WHERE id = $2
+              RETURNING *;
+            `;
+            await client.query(updateStockQuery, [newQuantity, stockId, getBangladeshTimeISO()]);
+            console.log(`📈 Stock quantity updated once-per-EPC: ${currentQuantity} → ${newQuantity} for ${item_number} (${lot_no})`);
+          }
+        } else {
+          const stockId = similarStockResult.rows[0].id;
+          const currentQuantity = similarStockResult.rows[0].quantity;
+          const newQuantity = currentQuantity + Number(quantity);
+
+          const updateStockQuery = `
+            UPDATE stocks
+            SET quantity = $1, updated_at = $3
+            WHERE id = $2
+            RETURNING *;
+          `;
+          await client.query(updateStockQuery, [newQuantity, stockId, getBangladeshTimeISO()]);
+          console.log(`📈 Stock quantity updated (no Redis): ${currentQuantity} → ${newQuantity} for ${item_number} (${lot_no})`);
+        }
       } else {
-        // New stock record
-        const insertStockQuery = `
-          INSERT INTO stocks (epc, po_number, item_number, lot_no, quantity)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING *;
-        `;
-        const stockInsertResult = await client.query(insertStockQuery, [
-          scanData.epc, po_number, item_number, lot_no, Number(quantity)
-        ]);
-        console.log(`✨ New stock record created: ${item_number} (${lot_no})`);
+        // New stock record for this EPC; guard against rapid duplicate scans before row appears
+        let allowInsert = true;
+        if (await inboundRedis.checkConnection()) {
+          const isStockProcessed = await inboundRedis.checkDuplicate(scanData.epc, item_number, po_number);
+          if (isStockProcessed) {
+            allowInsert = false;
+            console.log(`⚠️ Stock insert ignored (duplicate EPC+item+PO)`);
+          } else {
+            await inboundRedis.setDuplicateCheck(scanData.epc, item_number, po_number);
+          }
+        }
+        if (allowInsert) {
+          const insertStockQuery = `
+            INSERT INTO stocks (epc, po_number, item_number, lot_no, quantity, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING *;
+          `;
+          await client.query(insertStockQuery, [
+            scanData.epc, po_number, item_number, lot_no, Number(quantity), getBangladeshTimeISO(), getBangladeshTimeISO()
+          ]);
+          console.log(`✨ New stock record created: ${item_number} (${lot_no})`);
+        }
       }
     }
 
     await client.query('COMMIT');
 
     // Step 10: Emit socket events for live dashboard
-    // Socket events always work regardless of Redis duplicate check
     try {
       const io = getSocketInstance();
       if (io) {
@@ -424,12 +329,12 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
           po_number,
           item_number,
           item_description: itemData.item_description,
-          received_quantity: resolvedReceivedQty, // Total received so far (aggregated)
-          scanned_quantity: Number(quantity), // This scan's quantity
+          received_quantity: resolvedReceivedQty,
+          scanned_quantity: Number(quantity),
           ordered_quantity: resolvedOrderedQty,
-          remaining_quantity: resolvedRemainingQty, // How much more to receive
+          remaining_quantity: resolvedRemainingQty,
           lot_no,
-          timestamp: new Date().toISOString(),
+          timestamp: getBangladeshTimeISO(),
           epc: scanData.epc,
           location_name,
           location_status: newStatus,
@@ -445,13 +350,13 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
             po_number,
             item_number,
             quantity: Number(quantity),
-            received_quantity: resolvedReceivedQty, // Total received so far (aggregated)
+            received_quantity: resolvedReceivedQty,
             ordered_quantity: resolvedOrderedQty,
             remaining_quantity: resolvedRemainingQty,
             status: newStatus,
             location_name,
             created_at: trackerInsertResult.rows[0].created_at,
-            timestamp: new Date().toISOString()
+            timestamp: getBangladeshTimeISO()
           });
         }
 
@@ -684,7 +589,7 @@ const getUnifiedLiveData = async () => {
     return {
       dashboard: dashboardStats,
       stock: stockLive,
-      last_updated: new Date().toISOString(),
+      last_updated: getBangladeshTimeISO(),
     };
   } catch (error) {
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to get unified live data');
@@ -702,11 +607,125 @@ const testLocationTracking = async (data: { location_code: string; po_number: st
         location_code: data.location_code,
         po_number: data.po_number,
         item_number: data.item_number,
-        timestamp: new Date().toISOString()
+        timestamp: getBangladeshTimeISO()
       }
     };
   } catch (error) {
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Location tracking test failed');
+  }
+};
+
+
+// Manual inbound creator (utility)
+const createInboundManual = async (params: {
+  po_number: string;
+  item_number: string;
+  item_description?: string;
+  lot_no?: string;
+  epc: string;
+  quantity: number;
+}): Promise<IInbound> => {
+  const { po_number, item_number, item_description, lot_no, epc, quantity } = params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Ensure PO exists and fetch ordered qty for item
+    const poItemsQuery = `
+      SELECT poi.quantity
+      FROM purchase_orders po
+      LEFT JOIN po_items poi ON po.id = poi.po_id AND poi.item_number = $2
+      WHERE po.po_number = $1
+      LIMIT 1;
+    `;
+    const poItemsRes = await client.query(poItemsQuery, [po_number, item_number]);
+    const orderedQty = Number(poItemsRes.rows[0]?.quantity || 0);
+
+    // Fetch existing inbound for this PO (after acquiring lock)
+    const inboundQuery = `
+      SELECT id, items FROM inbound WHERE po_number = $1 ORDER BY created_at DESC LIMIT 1;
+    `;
+    const inboundRes = await client.query(inboundQuery, [po_number]);
+
+    let inboundRecord: any;
+    if (inboundRes.rows.length === 0) {
+      // Create new
+      const items = [
+        {
+          item_number,
+          item_description: item_description || '',
+          quantity: Number(quantity),
+          ordered_quantity: orderedQty,
+          lot_no: lot_no,
+          epc,
+        },
+      ];
+      const insertQuery = `
+        INSERT INTO inbound (po_number, items, received_at)
+        VALUES ($1, $2, CURRENT_DATE)
+        RETURNING *;
+      `;
+      const insertRes = await client.query(insertQuery, [po_number, JSON.stringify(items)]);
+      inboundRecord = insertRes.rows[0];
+      inboundRecord.items = items;
+    } else {
+      // Update existing
+      inboundRecord = inboundRes.rows[0];
+      let items = Array.isArray(inboundRecord.items)
+        ? inboundRecord.items
+        : JSON.parse(inboundRecord.items as any);
+
+      if (!Array.isArray(items)) items = [];
+
+      // Ignore if exact EPC+item exists
+      const sameEpcItem = items.find(
+        (it: any) => it.item_number === item_number && it.epc === epc
+      );
+      if (sameEpcItem) {
+        await client.query('COMMIT');
+        return { ...inboundRecord, items } as IInbound;
+      }
+
+      // If same item with different EPC exists -> create a separate entry (do NOT sum)
+      const sameItemDifferentEpcIdx = items.findIndex(
+        (it: any) => it.item_number === item_number && it.epc !== epc
+      );
+      if (sameItemDifferentEpcIdx !== -1) {
+        items.push({
+          item_number,
+          item_description: item_description || '',
+          quantity: Number(quantity),
+          ordered_quantity: orderedQty,
+          lot_no: lot_no,
+          epc,
+        });
+      } else {
+        // New object (different item)
+        items.push({
+          item_number,
+          item_description: item_description || '',
+          quantity: Number(quantity),
+          ordered_quantity: orderedQty,
+          lot_no: lot_no,
+          epc,
+        });
+      }
+
+      const updateQuery = `
+        UPDATE inbound SET items = $1, updated_at = $3 WHERE id = $2 RETURNING *;
+      `;
+      const updateRes = await client.query(updateQuery, [JSON.stringify(items), inboundRecord.id, getBangladeshTimeISO()]);
+      inboundRecord = updateRes.rows[0];
+      inboundRecord.items = items;
+    }
+
+    await client.query('COMMIT');
+    return inboundRecord as IInbound;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to create inbound manually');
+  } finally {
+    client.release();
   }
 };
 
@@ -718,5 +737,6 @@ export const InboundService = {
   deleteInbound,
   getUnifiedLiveData,
   testLocationTracking,
+  createInboundManual
 };
 

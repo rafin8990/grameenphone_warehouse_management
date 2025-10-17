@@ -26,6 +26,13 @@ router.get(
 // Unified live data endpoint (define BEFORE dynamic :id route)
 router.get('/live', InboundController.getUnifiedLiveData);
 
+// Manual inbound create/merge
+router.post(
+  '/',
+  validateRequest(InboundValidation.createInboundManualZodSchema),
+  InboundController.createInboundManual
+);
+
 // Get single inbound by ID
 router.get(
   '/:id',

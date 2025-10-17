@@ -186,6 +186,26 @@ const testLocationTracking = catchAsync(async (req: Request, res: Response) => {
   }
 });
 
+// Manually create/merge inbound
+const createInboundManual = catchAsync(async (req: Request, res: Response) => {
+  const { po_number, item_number, item_description, lot_no, epc, quantity } = req.body;
+  const result = await InboundService.createInboundManual({
+    po_number,
+    item_number,
+    item_description,
+    lot_no,
+    epc,
+    quantity: Number(quantity),
+  });
+
+  sendResponse<IInbound>(res, {
+    statusCode: httpStatus.CREATED,
+    success: true,
+    message: 'Inbound created/updated successfully',
+    data: result,
+  });
+});
+
 export const InboundController = {
   processRfidScan,
   getAllInbounds,
@@ -194,4 +214,5 @@ export const InboundController = {
   deleteInbound,
   getUnifiedLiveData,
   testLocationTracking,
+  createInboundManual,
 };

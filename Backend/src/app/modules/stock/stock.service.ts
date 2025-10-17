@@ -217,7 +217,7 @@ const getAllStocks = async (filters: IStockFilters = {}): Promise<IStock[]> => {
       s.created_at,
       s.updated_at,
       i.item_description,
-      po.po_date
+      po.created_at AS po_date
     FROM stocks s
     LEFT JOIN items i ON s.item_number = i.item_number
     LEFT JOIN purchase_orders po ON s.po_number = po.po_number

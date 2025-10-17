@@ -21,11 +21,6 @@
             "label": "PO Hex Codes"
         },
         {
-            "href": "/locations",
-            "icon": "MapPin",
-            "label": "Locations"
-        },
-        {
             "href": "/inbound/warehouse-gate",
             "icon": "Warehouse",
             "label": "Inbound"

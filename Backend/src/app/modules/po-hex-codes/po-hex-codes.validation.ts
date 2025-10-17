@@ -22,6 +22,7 @@ const createPoHexCodeZodSchema = z.object({
       .min(1, 'Item number must not be empty')
       .max(255, 'Item number must not exceed 255 characters'),
     quantity: z
+      .coerce
       .number({
         required_error: 'Quantity is required',
       })
@@ -63,6 +64,7 @@ const updatePoHexCodeZodSchema = z.object({
       .max(255, 'Item number must not exceed 255 characters')
       .optional(),
     quantity: z
+      .coerce
       .number()
       .positive('Quantity must be positive')
       .optional(),

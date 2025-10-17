@@ -6,6 +6,7 @@ import { IPaginationOptions } from '../../../interfaces/pagination';
 import pool from '../../../utils/dbClient';
 import { ILocationTracker, ILocationTrackerFilters, ICreateLocationTracker, ILocationTrackerStats, ILocationStatus, ILocationScanData } from './location-trackers.interface';
 import { locationTrackingRedis } from '../../../services/locationTrackingRedis';
+import { getBangladeshTimeISO } from '../../../shared/timezone';
 
 // Get socket instance dynamically to avoid import issues
 const getSocketInstance = () => {
@@ -170,7 +171,7 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
         INSERT INTO location_tracker (
           po_number, item_number, quantity, status, epc, user_id, created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
         RETURNING *;
       `;
       const insertResult = await client.query(insertQuery, [
@@ -179,7 +180,8 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
         quantity,
         newStatus,
         scanData.epc,
-        scanData.user_id || null
+        scanData.user_id || null,
+        getBangladeshTimeISO()
       ]);
       trackerRecord = insertResult.rows[0];
       console.log(`✅ Inserted → ID=${trackerRecord.id}, status=${trackerRecord.status}`);
@@ -220,7 +222,7 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
           user_id: trackerRecord.user_id,
           location_name: userLocationName,
           created_at: trackerRecord.created_at,
-          timestamp: new Date().toISOString(),
+          timestamp: getBangladeshTimeISO(),
           activity_text: activityText,
         });
         console.log(`📡 [Socket] Emitted: ${activityText}`);
@@ -331,8 +333,8 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
         }
 
         const insertQuery = `
-          INSERT INTO location_tracker (po_number, item_number, quantity, status, epc, user_id)
-          VALUES ($1, $2, $3, $4, $5, $6)
+          INSERT INTO location_tracker (po_number, item_number, quantity, status, epc, user_id, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
           RETURNING *;
         `;
 
@@ -343,7 +345,8 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
           data.quantity,
           newStatus,
           data.epc || null,
-          data.user_id || null
+          data.user_id || null,
+          getBangladeshTimeISO()
         ]);
 
         trackerRecord = result.rows[0];
@@ -362,8 +365,8 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
         status: newStatus,
         epc: data.epc,
         user_id: data.user_id,
-        created_at: new Date(),
-        updated_at: new Date()
+        created_at: new Date(getBangladeshTimeISO()),
+        updated_at: new Date(getBangladeshTimeISO())
       };
 
       console.log(`ℹ️ No new location tracker created - item remains "${newStatus}" for EPC ${data.epc}`);
@@ -402,7 +405,7 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
             epc: trackerRecord.epc,
             user_id: trackerRecord.user_id,
             created_at: trackerRecord.created_at,
-            timestamp: new Date().toISOString(),
+            timestamp: getBangladeshTimeISO(),
             activity_text
           });
           console.log(`📡 Live tracker update emitted for EPC: ${trackerRecord.epc}`);

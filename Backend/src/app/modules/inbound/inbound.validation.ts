@@ -91,5 +91,15 @@ export const InboundValidation = {
   getSingleInboundZodSchema,
   deleteInboundZodSchema,
   getAllInboundsZodSchema,
+  createInboundManualZodSchema: z.object({
+    body: z.object({
+      po_number: z.string({ required_error: 'po_number is required' }).min(1),
+      item_number: z.string({ required_error: 'item_number is required' }).min(1),
+      item_description: z.string().optional(),
+      lot_no: z.string().optional(),
+      epc: z.string({ required_error: 'epc is required' }).min(1),
+      quantity: z.number({ required_error: 'quantity is required' }).positive(),
+    }),
+  }),
 };
 
