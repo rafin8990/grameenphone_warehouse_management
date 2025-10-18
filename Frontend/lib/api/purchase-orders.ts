@@ -25,8 +25,10 @@ export interface IPurchaseOrder {
   po_description?: string | null;
   supplier_name: string;
   po_type?: string | null;
+  status?: 'pending' | 'partial' | 'received' | 'cancelled';
   created_at?: Date;
   updated_at?: Date;
+  received_at?: Date | null;
 }
 
 export interface IPoItem {
@@ -40,12 +42,19 @@ export interface IPoItem {
   uom_code?: string;
   item_status?: string;
   quantity: number;
+  ordered_quantity?: number;
+  received_quantity?: number;
   created_at?: Date;
   updated_at?: Date;
 }
 
 export interface IPurchaseOrderWithItems extends IPurchaseOrder {
   items?: IPoItem[];
+  total_items?: number;
+  total_ordered_quantity?: number;
+  total_received_quantity?: number;
+  status?: 'pending' | 'partial' | 'received' | 'cancelled';
+  received_at?: Date | null;
 }
 
 export interface PurchaseOrderQueryParams {
@@ -186,6 +195,33 @@ export const purchaseOrdersApi = {
       });
     } catch (error) {
       console.error('Error deleting purchase order:', error);
+      throw error;
+    }
+  },
+
+  // Send purchase order to Fusion
+  sendToFusion: async (id: number): Promise<{ message: string; fusion_id?: string }> => {
+    try {
+      const response = await apiRequest(`/api/v1/purchase-orders/${id}/send-to-fusion`, {
+        method: 'POST',
+      });
+      return response;
+    } catch (error) {
+      console.error('Error sending purchase order to Fusion:', error);
+      throw error;
+    }
+  },
+
+  // Update purchase order status
+  updateStatus: async (id: number, status: 'received' | 'partial' | 'cancelled'): Promise<IPurchaseOrderWithItems> => {
+    try {
+      const response = await apiRequest(`/api/v1/purchase-orders/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating purchase order status:', error);
       throw error;
     }
   },

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Plus, Search, Edit, Trash2, RefreshCw, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,7 @@ interface IPoItemSimple {
 }
 
 export default function PurchaseOrdersPage() {
+  const router = useRouter();
   const [purchaseOrders, setPurchaseOrders] = useState<IPurchaseOrderWithItems[]>([]);
   const [loading, setLoading] = useState(true);
   const [createLoading, setCreateLoading] = useState(false);
@@ -31,7 +33,6 @@ export default function PurchaseOrdersPage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [selectedPurchaseOrder, setSelectedPurchaseOrder] = useState<IPurchaseOrderWithItems | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -281,6 +282,7 @@ export default function PurchaseOrdersPage() {
     }
   };
 
+
   const resetForm = () => {
     setFormData({
       po_number: '',
@@ -322,10 +324,6 @@ export default function PurchaseOrdersPage() {
     setIsEditDialogOpen(true);
   };
 
-  const openViewDialog = (purchaseOrder: IPurchaseOrderWithItems) => {
-    setSelectedPurchaseOrder(purchaseOrder);
-    setIsViewDialogOpen(true);
-  };
 
   const formatDate = (dateString: string | Date | undefined) => {
     if (!dateString) return '-';
@@ -578,7 +576,7 @@ export default function PurchaseOrdersPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => openViewDialog(po)}
+                              onClick={() => router.push(`/purchase-orders/${po.id}`)}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
@@ -788,75 +786,6 @@ export default function PurchaseOrdersPage() {
           </DialogContent>
         </Dialog>
 
-        {/* View Dialog */}
-        <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Purchase Order Details</DialogTitle>
-              <DialogDescription>
-                View complete purchase order information
-              </DialogDescription>
-            </DialogHeader>
-            {selectedPurchaseOrder && (
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">PO Number</Label>
-                    <p className="text-lg font-semibold font-mono mt-1">{selectedPurchaseOrder.po_number}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Supplier Name</Label>
-                    <p className="text-base mt-1">{selectedPurchaseOrder.supplier_name}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-sm font-medium text-gray-600">PO Description</Label>
-                    <p className="text-base mt-1 bg-gray-50 p-2 rounded">{selectedPurchaseOrder.po_description || '-'}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">PO Type</Label>
-                    <p className="text-base mt-1">{selectedPurchaseOrder.po_type || '-'}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Created At</Label>
-                    <p className="text-base mt-1">{formatDate(selectedPurchaseOrder.created_at)}</p>
-                  </div>
-                </div>
-
-                {/* Items Section */}
-                {selectedPurchaseOrder.items && selectedPurchaseOrder.items.length > 0 && (
-                  <div>
-                    <Label className="text-sm font-medium text-gray-600">Purchase Order Items ({selectedPurchaseOrder.items.length})</Label>
-                    <div className="mt-2 space-y-2">
-                      {selectedPurchaseOrder.items.map((item, index) => (
-                        <div key={index} className="border rounded-lg p-4 bg-gray-50">
-                          <div className="grid grid-cols-3 gap-4">
-                            <div>
-                              <Label className="text-xs font-medium text-gray-500">Item Number</Label>
-                              <p className="text-sm font-medium font-mono">{item.item_number}</p>
-                            </div>
-                            <div>
-                              <Label className="text-xs font-medium text-gray-500">Description</Label>
-                              <p className="text-sm">{item.item_description || '-'}</p>
-                            </div>
-                            <div>
-                              <Label className="text-xs font-medium text-gray-500">Quantity</Label>
-                              <p className="text-sm font-semibold">{item.quantity}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
-                Close
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </PageLayout>
   );

@@ -158,6 +158,20 @@ const getPOStatusSummary = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+// Update Purchase Order Status
+const updatePurchaseOrderStatus = catchAsync(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const result = await PurchaseOrderService.updatePurchaseOrderStatus(Number(id), status);
+  
+  sendResponse<IPurchaseOrderWithItems>(res, {
+    statusCode: httpStatus.OK,
+    success: true,
+    message: `Purchase order status updated to ${status} successfully`,
+    data: result,
+  });
+});
+
 export const PurchaseOrderController = {
   createPurchaseOrder,
   getAllPurchaseOrders,
@@ -168,4 +182,5 @@ export const PurchaseOrderController = {
   quickGeneratePurchaseOrder,
   checkPOStatus,
   getPOStatusSummary,
+  updatePurchaseOrderStatus,
 };

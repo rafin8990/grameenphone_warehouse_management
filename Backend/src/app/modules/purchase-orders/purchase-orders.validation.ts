@@ -166,6 +166,25 @@ const autoCreatePurchaseOrderZodSchema = z.object({
   }),
 });
 
+// Update status validation schema
+const updateStatusZodSchema = z.object({
+  params: z.object({
+    id: z
+      .string({
+        required_error: 'Purchase order ID is required',
+      })
+      .refine(val => !isNaN(Number(val)) && Number(val) > 0, {
+        message: 'Purchase order ID must be a positive number',
+      }),
+  }),
+  body: z.object({
+    status: z.enum(['received', 'partial', 'cancelled'], {
+      required_error: 'Status is required',
+      invalid_type_error: 'Status must be one of: received, partial, cancelled',
+    }),
+  }),
+});
+
 export const PurchaseOrderValidation = {
   createPurchaseOrderZodSchema,
   updatePurchaseOrderZodSchema,
@@ -173,4 +192,5 @@ export const PurchaseOrderValidation = {
   deletePurchaseOrderZodSchema,
   getAllPurchaseOrdersZodSchema,
   autoCreatePurchaseOrderZodSchema,
+  updateStatusZodSchema,
 };

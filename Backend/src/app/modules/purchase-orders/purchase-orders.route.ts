@@ -46,6 +46,13 @@ router.patch(
   PurchaseOrderController.updatePurchaseOrder
 );
 
+// Update purchase order status
+router.patch(
+  '/:id/status',
+  validateRequest(PurchaseOrderValidation.updateStatusZodSchema),
+  PurchaseOrderController.updatePurchaseOrderStatus
+);
+
 // Delete purchase order by ID
 router.delete(
   '/:id',

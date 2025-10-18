@@ -5,6 +5,7 @@ import { PageLayout } from '@/components/layout/page-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
@@ -12,6 +13,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Plus, Edit, Trash2, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { poHexCodesApi, IPoHexCode } from '@/lib/api/po-hex-codes';
+import { purchaseOrdersApi, IPurchaseOrderWithItems } from '@/lib/api/purchase-orders';
+import { itemsApi, IItem } from '@/lib/api/items';
 import { PageHeader } from '@/components/layout/page-header';
 
 export default function PoHexCodesPage() {
@@ -34,12 +37,16 @@ export default function PoHexCodesPage() {
     uom: ''
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [availablePOs, setAvailablePOs] = useState<IPurchaseOrderWithItems[]>([]);
+  const [availableItems, setAvailableItems] = useState<IItem[]>([]);
+  const [loadingDropdowns, setLoadingDropdowns] = useState(true);
   const { toast } = useToast();
 
   const itemsPerPage = 10;
 
   useEffect(() => {
     fetchPoHexCodes();
+    fetchAllData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
 
@@ -67,6 +74,67 @@ export default function PoHexCodesPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchAvailablePOs = async () => {
+    try {
+      console.log('Fetching POs...');
+      const response = await purchaseOrdersApi.getAll({ limit: 1000 });
+      console.log('POs response:', response);
+      console.log('POs data:', response.data);
+      console.log('POs data length:', response.data?.length);
+      setAvailablePOs(response.data || []);
+    } catch (error) {
+      console.error('Error fetching POs:', error);
+      setAvailablePOs([]);
+    }
+  };
+
+  const fetchAvailableItems = async () => {
+    try {
+      console.log('Fetching items...');
+      const response = await itemsApi.getAll({ limit: 1000, item_status: 'active' });
+      console.log('Items response:', response);
+      console.log('Items data:', response.data);
+      console.log('Items data length:', response.data?.length);
+      setAvailableItems(response.data || []);
+    } catch (error) {
+      console.error('Error fetching items:', error);
+      setAvailableItems([]);
+    }
+  };
+
+  const fetchAllData = async () => {
+    setLoadingDropdowns(true);
+    try {
+      await Promise.all([fetchAvailablePOs(), fetchAvailableItems()]);
+    } finally {
+      setLoadingDropdowns(false);
+    }
+  };
+
+  const getItemDescription = (itemNumber: string) => {
+    const item = availableItems.find(i => i.item_number === itemNumber);
+    return item?.item_description || 'No description';
+  };
+
+  // Debug logging
+  useEffect(() => {
+    console.log('Available POs:', availablePOs);
+    console.log('Available Items:', availableItems);
+  }, [availablePOs, availableItems]);
+
+  const handlePOChange = (poNumber: string) => {
+    setFormData(prev => ({ ...prev, po_number: poNumber }));
+  };
+
+  const handleItemChange = (itemNumber: string) => {
+    const item = availableItems.find(i => i.item_number === itemNumber);
+    setFormData(prev => ({ 
+      ...prev, 
+      item_number: itemNumber,
+      uom: item?.primary_uom || ''
+    }));
   };
 
   const handleCreate = async () => {
@@ -233,13 +301,28 @@ export default function PoHexCodesPage() {
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div>
                 <Label htmlFor="form_po_number" className="text-xs">PO Number *</Label>
-                <Input
-                  id="form_po_number"
-                  value={formData.po_number}
-                  onChange={(e) => setFormData(prev => ({ ...prev, po_number: e.target.value }))}
-                  placeholder="PO number"
-                  className={`h-9 ${formErrors.po_number ? "border-red-500" : ""}`}
-                />
+                <Select value={formData.po_number} onValueChange={handlePOChange}>
+                  <SelectTrigger className={`h-9 ${formErrors.po_number ? "border-red-500" : ""}`}>
+                    <SelectValue placeholder={loadingDropdowns ? "Loading..." : "Select PO number"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {loadingDropdowns ? (
+                      <SelectItem value="loading" disabled>
+                        Loading POs...
+                      </SelectItem>
+                    ) : availablePOs.length > 0 ? (
+                      availablePOs.map((po) => (
+                        <SelectItem key={po.id} value={po.po_number}>
+                          {po.po_number} - {po.supplier_name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="no-data" disabled>
+                        No POs available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="form_lot_no" className="text-xs">Lot No *</Label>
@@ -253,13 +336,28 @@ export default function PoHexCodesPage() {
               </div>
               <div>
                 <Label htmlFor="form_item_number" className="text-xs">Item No *</Label>
-                <Input
-                  id="form_item_number"
-                  value={formData.item_number}
-                  onChange={(e) => setFormData(prev => ({ ...prev, item_number: e.target.value }))}
-                  placeholder="Item number"
-                  className={`h-9 ${formErrors.item_number ? "border-red-500" : ""}`}
-                />
+                <Select value={formData.item_number} onValueChange={handleItemChange}>
+                  <SelectTrigger className={`h-9 ${formErrors.item_number ? "border-red-500" : ""}`}>
+                    <SelectValue placeholder={loadingDropdowns ? "Loading..." : "Select item number"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {loadingDropdowns ? (
+                      <SelectItem value="loading" disabled>
+                        Loading items...
+                      </SelectItem>
+                    ) : availableItems.length > 0 ? (
+                      availableItems.map((item) => (
+                        <SelectItem key={item.id} value={item.item_number}>
+                          {item.item_number} - {item.item_description}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="no-data" disabled>
+                        No items available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="form_quantity" className="text-xs">Qty *</Label>
@@ -302,6 +400,15 @@ export default function PoHexCodesPage() {
                   )}
                 </Button>
               </div>
+              
+              {/* Item Description Display */}
+              {formData.item_number && (
+                <div className="col-span-2 md:col-span-5">
+                  <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                    <strong>Selected Item Description:</strong> {getItemDescription(formData.item_number)}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -431,13 +538,24 @@ export default function PoHexCodesPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="edit_po_number">PO Number *</Label>
-                <Input
-                  id="edit_po_number"
-                  value={formData.po_number}
-                  onChange={(e) => setFormData(prev => ({ ...prev, po_number: e.target.value }))}
-                  placeholder="Enter PO number"
-                  className={formErrors.po_number ? "border-red-500" : ""}
-                />
+                <Select value={formData.po_number} onValueChange={handlePOChange}>
+                  <SelectTrigger className={formErrors.po_number ? "border-red-500" : ""}>
+                    <SelectValue placeholder="Select PO number" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availablePOs.length > 0 ? (
+                      availablePOs.map((po) => (
+                        <SelectItem key={po.id} value={po.po_number}>
+                          {po.po_number} - {po.supplier_name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="no-data" disabled>
+                        No POs available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
                 {formErrors.po_number && <p className="text-sm text-red-500 mt-1">{formErrors.po_number}</p>}
               </div>
               <div>
@@ -453,13 +571,24 @@ export default function PoHexCodesPage() {
               </div>
               <div>
                 <Label htmlFor="edit_item_number">Item Number *</Label>
-                <Input
-                  id="edit_item_number"
-                  value={formData.item_number}
-                  onChange={(e) => setFormData(prev => ({ ...prev, item_number: e.target.value }))}
-                  placeholder="Enter item number"
-                  className={formErrors.item_number ? "border-red-500" : ""}
-                />
+                <Select value={formData.item_number} onValueChange={handleItemChange}>
+                  <SelectTrigger className={formErrors.item_number ? "border-red-500" : ""}>
+                    <SelectValue placeholder="Select item number" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableItems.length > 0 ? (
+                      availableItems.map((item) => (
+                        <SelectItem key={item.id} value={item.item_number}>
+                          {item.item_number} - {item.item_description}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="no-data" disabled>
+                        No items available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
                 {formErrors.item_number && <p className="text-sm text-red-500 mt-1">{formErrors.item_number}</p>}
               </div>
               <div>
@@ -495,6 +624,15 @@ export default function PoHexCodesPage() {
                   <p className="text-xs text-gray-500 mt-1">Hex code cannot be changed</p>
                 </div>
               </div>
+              
+              {/* Item Description Display in Edit Dialog */}
+              {formData.item_number && (
+                <div className="md:col-span-2">
+                  <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                    <strong>Selected Item Description:</strong> {getItemDescription(formData.item_number)}
+                  </div>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>

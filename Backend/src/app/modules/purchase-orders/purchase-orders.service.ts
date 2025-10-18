@@ -223,13 +223,13 @@ const getAllPurchaseOrders = async (
   const purchaseOrdersWithItems: IPurchaseOrderWithItems[] = [];
 
   for (const po of result.rows) {
-    // Get PO items with item details
+    // Get PO items with item details and received quantities
     const itemsQuery = `
       SELECT 
         pi.id,
         pi.po_id,
         pi.item_number,
-        pi.quantity,
+        pi.quantity as ordered_quantity,
         pi.created_at,
         pi.updated_at,
         i.id as item_id,
@@ -239,14 +239,24 @@ const getAllPurchaseOrders = async (
         i.inventory_organization,
         i.primary_uom,
         i.uom_code,
-        i.item_status
+        i.item_status,
+        COALESCE(received_data.received_quantity, 0)::int as received_quantity
       FROM po_items pi
       INNER JOIN items i ON pi.item_number = i.item_number
+      LEFT JOIN (
+        SELECT 
+          item->>'item_number' as item_number,
+          SUM(COALESCE((item->>'quantity')::numeric, 0)) as received_quantity
+        FROM inbound,
+        LATERAL jsonb_array_elements(items) as item
+        WHERE po_number = $2
+        GROUP BY item->>'item_number'
+      ) received_data ON pi.item_number = received_data.item_number
       WHERE pi.po_id = $1
       ORDER BY pi.id;
     `;
 
-    const itemsResult = await pool.query(itemsQuery, [po.id]);
+    const itemsResult = await pool.query(itemsQuery, [po.id, po.po_number]);
 
     purchaseOrdersWithItems.push({
       id: po.id,
@@ -291,12 +301,33 @@ const getSinglePurchaseOrder = async (
 ): Promise<IPurchaseOrderWithItems | null> => {
   const client = await pool.connect();
   try {
-    // Get purchase order
+    // Get purchase order with totals
     const poQuery = `
       SELECT 
-        po.*
+        po.id,
+        po.po_number,
+        po.po_description,
+        po.supplier_name,
+        po.po_type,
+        po.status,
+        po.created_at,
+        po.updated_at,
+        po.received_at,
+        COUNT(pi.id)::int as total_items,
+        SUM(pi.quantity)::int as total_ordered_quantity,
+        COALESCE(inbound_data.total_received_quantity, 0)::int as total_received_quantity
       FROM purchase_orders po
-      WHERE po.id = $1;
+      LEFT JOIN po_items pi ON po.id = pi.po_id
+      LEFT JOIN (
+        SELECT 
+          po_number,
+          SUM((item->>'quantity')::numeric) as total_received_quantity
+        FROM inbound,
+        LATERAL jsonb_array_elements(items) as item
+        GROUP BY po_number
+      ) inbound_data ON po.po_number = inbound_data.po_number
+      WHERE po.id = $1
+      GROUP BY po.id, po.status, po.received_at, inbound_data.total_received_quantity;
     `;
 
     const poResult = await client.query(poQuery, [id]);
@@ -306,13 +337,13 @@ const getSinglePurchaseOrder = async (
 
     const purchaseOrder = poResult.rows[0];
 
-    // Get PO items with item details
+    // Get PO items with item details and received quantities
     const itemsQuery = `
       SELECT 
         pi.id,
         pi.po_id,
         pi.item_number,
-        pi.quantity,
+        pi.quantity as ordered_quantity,
         pi.created_at,
         pi.updated_at,
         i.id as item_id,
@@ -322,19 +353,206 @@ const getSinglePurchaseOrder = async (
         i.inventory_organization,
         i.primary_uom,
         i.uom_code,
-        i.item_status
+        i.item_status,
+        COALESCE(received_data.received_quantity, 0)::int as received_quantity
       FROM po_items pi
       INNER JOIN items i ON pi.item_number = i.item_number
+      LEFT JOIN (
+        SELECT 
+          item->>'item_number' as item_number,
+          SUM(COALESCE((item->>'quantity')::numeric, 0)) as received_quantity
+        FROM inbound,
+        LATERAL jsonb_array_elements(items) as item
+        WHERE po_number = $2
+        GROUP BY item->>'item_number'
+      ) received_data ON pi.item_number = received_data.item_number
       WHERE pi.po_id = $1
       ORDER BY pi.id;
     `;
 
-    const itemsResult = await client.query(itemsQuery, [id]);
+    const itemsResult = await client.query(itemsQuery, [id, purchaseOrder.po_number]);
 
     return {
       ...purchaseOrder,
+      total_items: purchaseOrder.total_items,
+      total_ordered_quantity: purchaseOrder.total_ordered_quantity,
+      total_received_quantity: purchaseOrder.total_received_quantity,
       items: itemsResult.rows,
     };
+  } finally {
+    client.release();
+  }
+};
+
+const updatePurchaseOrderStatus = async (
+  id: number,
+  status: 'received' | 'partial' | 'cancelled'
+): Promise<IPurchaseOrderWithItems | null> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Get the purchase order first to get po_number
+    const poQuery = `SELECT po_number FROM purchase_orders WHERE id = $1::INTEGER`;
+    const poResult = await client.query(poQuery, [id]);
+    
+    if (poResult.rows.length === 0) {
+      throw new Error('Purchase order not found');
+    }
+
+    const po_number = poResult.rows[0].po_number;
+
+    // Update the purchase order status
+    const updateQuery = `
+      UPDATE purchase_orders 
+      SET status = $1::VARCHAR(20), 
+          updated_at = CURRENT_TIMESTAMP,
+          received_at = CASE 
+            WHEN $1 = 'received' THEN CURRENT_TIMESTAMP 
+            ELSE received_at 
+          END
+      WHERE id = $2::INTEGER
+      RETURNING *;
+    `;
+    
+    const updateResult = await client.query(updateQuery, [status, id]);
+    
+    if (updateResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    // If status is 'received' or 'partial', add items to stock table
+    if (status === 'received' || status === 'partial') {
+      await addInboundItemsToStock(client, po_number);
+    }
+
+    await client.query('COMMIT');
+
+    // Get the updated purchase order with items and totals
+    return await getSinglePurchaseOrder(id);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Add inbound items to stock table with FIFO ordering
+const addInboundItemsToStock = async (client: any, po_number: string): Promise<void> => {
+  try {
+    // Get all inbound records for this PO, ordered by created_at (FIFO)
+    const inboundQuery = `
+      SELECT items, created_at
+      FROM inbound 
+      WHERE po_number = $1::VARCHAR(100)
+      ORDER BY created_at ASC
+    `;
+    
+    const inboundResult = await client.query(inboundQuery, [String(po_number)]);
+    
+    if (inboundResult.rows.length === 0) {
+      return; // No inbound records found
+    }
+
+    // Process each inbound record
+    for (const inboundRecord of inboundResult.rows) {
+      const items = Array.isArray(inboundRecord.items) 
+        ? inboundRecord.items 
+        : JSON.parse(inboundRecord.items as any);
+
+      if (!Array.isArray(items)) continue;
+
+      // Process each item in the inbound record
+      for (const item of items) {
+        const { item_number, quantity, lot_no } = item;
+        
+        if (!item_number || !quantity || !lot_no) continue;
+
+        // Check if this exact combination already exists in stock
+        const existingStockQuery = `
+          SELECT id, quantity 
+          FROM stocks 
+          WHERE po_number = $1::VARCHAR(255) AND item_number = $2::VARCHAR(255) AND lot_no = $3::VARCHAR(255)
+        `;
+        
+        const existingResult = await client.query(existingStockQuery, [
+          String(po_number), 
+          String(item_number), 
+          String(lot_no)
+        ]);
+        
+        if (existingResult.rows.length > 0) {
+          // Update existing stock quantity
+          const updateStockQuery = `
+            UPDATE stocks 
+            SET quantity = quantity + $1::INTEGER, updated_at = CURRENT_TIMESTAMP
+            WHERE po_number = $2::VARCHAR(255) AND item_number = $3::VARCHAR(255) AND lot_no = $4::VARCHAR(255)
+          `;
+          
+          await client.query(updateStockQuery, [
+            Number(quantity), 
+            String(po_number), 
+            String(item_number), 
+            String(lot_no)
+          ]);
+        } else {
+          // Insert new stock record
+          const insertStockQuery = `
+            INSERT INTO stocks (po_number, item_number, quantity, lot_no, created_at, updated_at)
+            VALUES ($1::VARCHAR(255), $2::VARCHAR(255), $3::INTEGER, $4::VARCHAR(255), CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `;
+          
+          await client.query(insertStockQuery, [
+            String(po_number), 
+            String(item_number), 
+            Number(quantity), 
+            String(lot_no)
+          ]);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error adding inbound items to stock:', error);
+    throw error;
+  }
+};
+
+// Get stock data with FIFO ordering (first posted items show first)
+const getStockWithFIFO = async (po_number?: string): Promise<any[]> => {
+  const client = await pool.connect();
+  try {
+    let query = `
+      SELECT 
+        s.id,
+        s.po_number,
+        s.item_number,
+        s.quantity,
+        s.lot_no,
+        s.created_at,
+        s.updated_at,
+        i.item_description,
+        i.primary_uom
+      FROM stocks s
+      LEFT JOIN items i ON s.item_number = i.item_number
+    `;
+    
+    const params: any[] = [];
+    
+    if (po_number) {
+      query += ` WHERE s.po_number = $1::VARCHAR(255)`;
+      params.push(String(po_number));
+    }
+    
+    // Order by created_at ASC to maintain FIFO (first posted items show first)
+    query += ` ORDER BY s.created_at ASC, s.id ASC`;
+    
+    const result = await client.query(query, params);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting stock with FIFO:', error);
+    throw error;
   } finally {
     client.release();
   }
@@ -466,21 +684,38 @@ const deletePurchaseOrder = async (id: number): Promise<void> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const checkQuery = `SELECT id FROM purchase_orders WHERE id = $1;`;
-    const checkResult = await client.query(checkQuery, [id]);
+    
+    // First, get the PO number for this purchase order
+    const poQuery = `SELECT po_number FROM purchase_orders WHERE id = $1;`;
+    const poResult = await client.query(poQuery, [id]);
 
-    if (checkResult.rows.length === 0) {
+    if (poResult.rows.length === 0) {
       throw new ApiError(httpStatus.NOT_FOUND, 'Purchase order not found');
     }
 
+    const po_number = poResult.rows[0].po_number;
 
-    const deleteQuery = `DELETE FROM purchase_orders WHERE id = $1;`;
-    await client.query(deleteQuery, [id]);
+    // Delete related records first (in correct order to avoid foreign key violations)
+    // 1. Delete from stocks table (references po_number)
+    await client.query(`DELETE FROM stocks WHERE po_number = $1;`, [po_number]);
+    
+    // 2. Delete from location_tracker table (references po_number)
+    await client.query(`DELETE FROM location_tracker WHERE po_number = $1;`, [po_number]);
+    
+    // 3. Delete from epc_tracking table (references po_number)
+    await client.query(`DELETE FROM epc_tracking WHERE po_number = $1;`, [po_number]);
+    
+    // 4. Delete from inbound table (references po_number)
+    await client.query(`DELETE FROM inbound WHERE po_number = $1;`, [po_number]);
+    
+    // 5. Finally delete the purchase order (po_items will cascade delete)
+    await client.query(`DELETE FROM purchase_orders WHERE id = $1;`, [id]);
 
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');
     if (error instanceof ApiError) throw error;
+    console.error('Delete purchase order error:', error);
     throw new ApiError(
       httpStatus.INTERNAL_SERVER_ERROR,
       'Failed to delete purchase order'
@@ -566,8 +801,10 @@ export const PurchaseOrderService = {
   getAllPurchaseOrders,
   getSinglePurchaseOrder,
   updatePurchaseOrder,
+  updatePurchaseOrderStatus,
   deletePurchaseOrder,
   generatePONumber,
   autoCreatePurchaseOrder,
   quickGeneratePurchaseOrder,
+  getStockWithFIFO,
 };
