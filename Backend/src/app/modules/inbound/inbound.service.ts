@@ -16,7 +16,6 @@ const getSocketInstance = () => {
     const serverModule = require('../../../server');
     return serverModule.io;
   } catch (error) {
-    console.log('Socket.IO not available yet');
     return null;
   }
 };
@@ -28,11 +27,6 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
   try {
     await client.query('BEGIN');
 
-    // Will acquire advisory lock after resolving po_number from EPC
-
-    console.log('📡 Processing RFID scan:', scanData);
-
-    // Step 1: Parse user_id from value field
     const user_id = Number(scanData.value);
     if (!user_id) {
       throw new ApiError(
@@ -41,13 +35,11 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       );
     }
 
-    // Step 2: Get EPC details from po_hex_codes table
     const hexCodeQuery = `
       SELECT po_number, lot_no, item_number, quantity
       FROM po_hex_codes
       WHERE hex_code = $1;
     `;
-    console.log('🔍 Searching for EPC:', scanData.epc);
     const hexCodeResult = await client.query(hexCodeQuery, [scanData.epc]);
 
     if (hexCodeResult.rows.length === 0) {
@@ -60,10 +52,8 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     const hexCodeData = hexCodeResult.rows[0];
     const { po_number, lot_no, item_number, quantity } = hexCodeData;
 
-    // Acquire advisory lock per PO to serialize concurrent scans for same PO
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [po_number]);
 
-    // Step 3: Get purchase order details
     const poQuery = `
       SELECT 
         po.po_number, 
@@ -96,7 +86,6 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
 
     const poData = poResult.rows[0];
 
-    // Step 4: Get item details
     const itemQuery = `
       SELECT item_description, primary_uom
       FROM items
@@ -113,7 +102,6 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
 
     const itemData = itemResult.rows[0];
 
-    // Step 5: Get user details (location name)
     const userQuery = `
       SELECT name
       FROM users
@@ -129,7 +117,7 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     }
 
     const userData = userResult.rows[0];
-    const location_name = userData.name; // User's name becomes location name
+    const location_name = userData.name; 
 
     // Step 6: Proceed without Redis gating; rely on DB JSON checks for duplicates
     let shouldProcessInbound = true;
@@ -150,7 +138,8 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       const createdItems: any = (createdRec as any)?.items;
       items = Array.isArray(createdItems) ? createdItems : JSON.parse(createdItems as any);
     } 
-    // Step 8: Location Tracker Processing (60 second cooldown for same EPC+item_number+user_id)
+
+    
     let shouldCreateLocationTracker = true;
     let newStatus: 'in' | 'out' = 'in';
 
@@ -171,15 +160,11 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
       const timeDiff = Date.now() - new Date(lastRecord.created_at).getTime();
       
       if (timeDiff < 60000) { // 60 seconds cooldown
-        console.log(`⚠️ Location tracker cooldown active for EPC ${scanData.epc} - ${Math.round((60000 - timeDiff) / 1000)}s remaining`);
         shouldCreateLocationTracker = false;
       } else {
         // Toggle status after 30 seconds
         newStatus = lastRecord.status === 'in' ? 'out' : 'in';
-        console.log(`🔄 Location tracker status toggle: ${lastRecord.status} → ${newStatus}`);
       }
-    } else {
-      console.log(`📍 First time location tracking for EPC ${scanData.epc} - status: in`);
     }
 
     // Insert location tracker record
@@ -199,71 +184,8 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
         newStatus,
         getBangladeshTimeISO()
       ]);
-      
-      console.log(`📊 Location tracker created: status=${newStatus}, location=${location_name}, EPC=${scanData.epc}, User=${user_id}`);
-    } else {
-      console.log(`⏳ Location tracker skipped due to 30s cooldown for EPC+user+PO+qty: ${scanData.epc}+${user_id}+${po_number}+${quantity}`);
     }
 
-    // Step 9: Stock Processing with EPC Tracking
-    // Check if this EPC+item+PO combination has been processed before
-    const isEpcProcessed = await EpcTrackingService.isEpcProcessed(scanData.epc, item_number, po_number);
-    
-    if (isEpcProcessed) {
-      console.log(`⚠️ EPC already processed: ${scanData.epc}+${item_number}+${po_number} - skipping stock update`);
-    } else {
-      // Record this EPC processing to prevent future duplicates
-      await EpcTrackingService.recordEpcProcessing(scanData.epc, item_number, po_number, Number(quantity));
-      console.log(`✅ EPC processing recorded: ${scanData.epc}+${item_number}+${po_number}`);
-
-      // Check if same EPC+item+lot exists in stocks
-      const stockQuery = `
-        SELECT id, quantity
-        FROM stocks
-        WHERE epc = $1 AND item_number = $2 AND lot_no = $3;
-      `;
-      const stockResult = await client.query(stockQuery, [scanData.epc, item_number, lot_no]);
-
-      if (stockResult.rows.length > 0) {
-        // Same EPC+item+lot already exists - no need to update quantity
-        console.log(`ℹ️ Stock record already exists for EPC: ${scanData.epc}+${item_number}+${lot_no}`);
-      } else {
-        // Check for different EPC but same item+lot
-        const similarStockQuery = `
-          SELECT id, quantity
-          FROM stocks
-          WHERE item_number = $1 AND lot_no = $2 AND epc != $3;
-        `;
-        const similarStockResult = await client.query(similarStockQuery, [item_number, lot_no, scanData.epc]);
-
-        if (similarStockResult.rows.length > 0) {
-          // Different EPC, same item+lot - add quantity to existing record
-          const stockId = similarStockResult.rows[0].id;
-          const currentQuantity = similarStockResult.rows[0].quantity;
-          const newQuantity = currentQuantity + Number(quantity);
-
-          const updateStockQuery = `
-            UPDATE stocks
-            SET quantity = $1, updated_at = $3
-            WHERE id = $2
-            RETURNING *;
-          `;
-          await client.query(updateStockQuery, [newQuantity, stockId, getBangladeshTimeISO()]);
-          console.log(`📈 Stock quantity updated: ${currentQuantity} → ${newQuantity} for ${item_number} (${lot_no})`);
-        } else {
-          // New stock record for this EPC
-          const insertStockQuery = `
-            INSERT INTO stocks (epc, po_number, item_number, lot_no, quantity, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            RETURNING *;
-          `;
-          await client.query(insertStockQuery, [
-            scanData.epc, po_number, item_number, lot_no, Number(quantity), getBangladeshTimeISO(), getBangladeshTimeISO()
-          ]);
-          console.log(`✨ New stock record created: ${item_number} (${lot_no})`);
-        }
-      }
-    }
 
     await client.query('COMMIT');
 
@@ -287,13 +209,6 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
         const resolvedReceivedQty = Number(aggregatedReceivedForItem);
         const resolvedRemainingQty = resolvedOrderedQty - resolvedReceivedQty;
 
-        console.log(`📊 Socket aggregation for ${item_number}:`, {
-          total_entries: allItems.filter((it: any) => it.item_number === item_number).length,
-          individual_quantities: allItems.filter((it: any) => it.item_number === item_number).map((it: any) => ({ epc: it.epc, qty: it.quantity })),
-          aggregated_received: resolvedReceivedQty,
-          ordered: resolvedOrderedQty,
-          remaining: resolvedRemainingQty
-        });
 
         // Inbound scan event
         io.emit('inbound:new-scan', {
@@ -330,24 +245,9 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
             timestamp: getBangladeshTimeISO()
           });
         }
-
-        // Emit live stock data update
-        try {
-          const aggregatedStocks = await StockService.getAggregatedStocks();
-          io.emit('stock:live-update', {
-            data: aggregatedStocks,
-            timestamp: getBangladeshTimeISO()
-          });
-          console.log(`📦 Stock live data emitted: ${aggregatedStocks.length} aggregated records`);
-        } catch (stockError) {
-          console.error('Stock socket emit error (non-critical):', stockError);
-        }
-
-        console.log(`✅ Socket events emitted for ${po_number} - Item: ${item_number}, Status: ${newStatus}, Location: ${location_name}`);
-        console.log(`📊 Socket data: received_quantity=${resolvedReceivedQty}, scanned_quantity=${Number(quantity)}, ordered_quantity=${resolvedOrderedQty}`);
       }
     } catch (socketError) {
-      console.error('Socket emit error (non-critical):', socketError);
+      // Socket emit error (non-critical)
     }
 
     return inboundRecord || null;
@@ -355,8 +255,6 @@ const processRfidScan = async (scanData: IRfidScanData): Promise<IInbound | null
     await client.query('ROLLBACK');
 
     if (error instanceof ApiError) throw error;
-
-    console.error('Inbound processing error:', error);
 
     let errorMessage = 'Failed to process RFID scan';
     if (error instanceof Error) {

@@ -24,6 +24,19 @@ interface LocationTrackerEvent {
   updated_at: string;
 }
 
+interface GroupedLocationTrackerEvent {
+  po_number: string;
+  item_number: string;
+  item_description?: string;
+  quantity: number;
+  status: 'in' | 'out';
+  location_name?: string;
+  created_at: string;
+  updated_at: string;
+  event_count: number;
+  is_grouped: boolean;
+}
+
 interface LocationTrackerResponse {
   data: LocationTrackerEvent[];
   meta: {
@@ -66,6 +79,7 @@ const formatBdTime = (iso: string) => {
 
 export default function LocationTrackerStatusPage() {
   const [events, setEvents] = useState<LocationTrackerEvent[]>([]);
+  const [groupedEvents, setGroupedEvents] = useState<GroupedLocationTrackerEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -84,25 +98,136 @@ export default function LocationTrackerStatusPage() {
   const [sortBy, setSortBy] = useState('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
+  const groupEventsByItem = (events: LocationTrackerEvent[]): GroupedLocationTrackerEvent[] => {
+    // Sort events by created_at to process them in chronological order
+    const sortedEvents = [...events].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    
+    const groupedEvents: GroupedLocationTrackerEvent[] = [];
+    let currentGroup: GroupedLocationTrackerEvent | null = null;
+
+    sortedEvents.forEach((event) => {
+      const quantity = Number(event.quantity) || 0;
+      const eventTime = new Date(event.created_at).getTime();
+      
+      // Check if this event can be grouped with the current group
+      if (currentGroup && 
+          currentGroup.po_number === event.po_number && 
+          currentGroup.item_number === event.item_number && 
+          currentGroup.status === event.status) {
+        
+        const currentGroupTime = new Date(currentGroup.created_at).getTime();
+        const timeDiff = eventTime - currentGroupTime;
+        
+        // Group if within 10 seconds (events posted together)
+        if (timeDiff <= 10000) {
+          // Add to current group
+          currentGroup.quantity += quantity;
+          currentGroup.event_count += 1;
+          currentGroup.updated_at = event.updated_at;
+          currentGroup.location_name = event.location_name;
+        } else {
+          // More than 10 seconds - start new group
+          groupedEvents.push(currentGroup);
+          currentGroup = {
+            po_number: event.po_number,
+            item_number: event.item_number,
+            item_description: event.item_description,
+            quantity: quantity,
+            status: event.status,
+            location_name: event.location_name,
+            created_at: event.created_at,
+            updated_at: event.updated_at,
+            event_count: 1,
+            is_grouped: false
+          };
+        }
+      } else {
+        // Start a new group (different PO, item, or status)
+        if (currentGroup) {
+          groupedEvents.push(currentGroup);
+        }
+        
+        currentGroup = {
+          po_number: event.po_number,
+          item_number: event.item_number,
+          item_description: event.item_description,
+          quantity: quantity,
+          status: event.status,
+          location_name: event.location_name,
+          created_at: event.created_at,
+          updated_at: event.updated_at,
+          event_count: 1,
+          is_grouped: false
+        };
+      }
+    });
+
+    // Add the last group if it exists
+    if (currentGroup) {
+      groupedEvents.push(currentGroup);
+    }
+
+    // Mark groups with multiple events as grouped
+    groupedEvents.forEach(group => {
+      if (group.event_count > 1) {
+        group.is_grouped = true;
+      }
+    });
+
+    // Sort by created_at in descending order (most recent first)
+    return groupedEvents.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  };
+
   const fetchLocationTrackers = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        page: pagination.page.toString(),
-        limit: pagination.limit.toString(),
-        sortBy,
-        sortOrder,
-        ...(filters.searchTerm && { searchTerm: filters.searchTerm }),
-        ...(filters.fromDate && { fromDate: filters.fromDate }),
-        ...(filters.toDate && { toDate: filters.toDate }),
-        ...(filters.status && { status: filters.status })
-      });
-
-       const response = await fetch(`/api/location-trackers?${params}`);
+      // Fetch all data without filters first
+      const response = await fetch(`/api/location-trackers?page=1&limit=10000`);
       if (response.ok) {
         const data: LocationTrackerResponse = await response.json();
         setEvents(data.data);
-        setPagination(data.meta);
+        
+        // Group events by PO number and item number
+        const grouped = groupEventsByItem(data.data);
+        
+        // Apply client-side filtering to grouped events
+        let filteredGrouped = grouped;
+        
+        if (filters.searchTerm) {
+          const searchLower = filters.searchTerm.toLowerCase();
+          filteredGrouped = filteredGrouped.filter(event => 
+            event.po_number.toLowerCase().includes(searchLower) ||
+            event.item_number.toLowerCase().includes(searchLower) ||
+            (event.item_description && event.item_description.toLowerCase().includes(searchLower))
+          );
+        }
+        
+        if (filters.status) {
+          filteredGrouped = filteredGrouped.filter(event => event.status === filters.status);
+        }
+        
+        if (filters.fromDate) {
+          const fromDate = new Date(filters.fromDate);
+          filteredGrouped = filteredGrouped.filter(event => 
+            new Date(event.created_at) >= fromDate
+          );
+        }
+        
+        if (filters.toDate) {
+          const toDate = new Date(filters.toDate);
+          filteredGrouped = filteredGrouped.filter(event => 
+            new Date(event.created_at) <= toDate
+          );
+        }
+        
+        setGroupedEvents(filteredGrouped);
+        setPagination(prev => ({
+          ...prev,
+          total: filteredGrouped.length,
+          totalPages: Math.ceil(filteredGrouped.length / prev.limit),
+          hasNext: prev.page < Math.ceil(filteredGrouped.length / prev.limit),
+          hasPrev: prev.page > 1
+        }));
       } else {
         console.error('Failed to fetch location trackers');
       }
@@ -115,14 +240,21 @@ export default function LocationTrackerStatusPage() {
 
   useEffect(() => {
     fetchLocationTrackers();
-  }, [pagination.page, sortBy, sortOrder, filters]);
+  }, [filters]);
 
   const handlePageChange = (page: number) => {
     setPagination(prev => ({ ...prev, page }));
   };
 
   const handleLimitChange = (limit: number) => {
-    setPagination(prev => ({ ...prev, limit, page: 1 }));
+    setPagination(prev => ({ 
+      ...prev, 
+      limit, 
+      page: 1,
+      totalPages: Math.ceil(prev.total / limit),
+      hasNext: 1 < Math.ceil(prev.total / limit),
+      hasPrev: false
+    }));
   };
 
   const handleSort = (field: string) => {
@@ -150,13 +282,13 @@ export default function LocationTrackerStatusPage() {
   };
 
   const getStatusBadge = (status: 'in' | 'out') => {
-    return status === 'in' 
+    return status === 'in'
       ? <Badge className="bg-green-100 text-green-700 border-green-300">IN</Badge>
       : <Badge className="bg-red-100 text-red-700 border-red-300">OUT</Badge>;
   };
 
   const getStatusIcon = (status: 'in' | 'out') => {
-    return status === 'in' 
+    return status === 'in'
       ? <ArrowRight className="h-4 w-4 text-green-600" />
       : <ArrowLeft className="h-4 w-4 text-red-600" />;
   };
@@ -194,7 +326,7 @@ export default function LocationTrackerStatusPage() {
                   onChange={(e) => handleFilterChange('searchTerm', e.target.value)}
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="fromDate">From Date</Label>
                 <Input
@@ -204,7 +336,7 @@ export default function LocationTrackerStatusPage() {
                   onChange={(e) => handleFilterChange('fromDate', e.target.value)}
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="toDate">To Date</Label>
                 <Input
@@ -214,7 +346,7 @@ export default function LocationTrackerStatusPage() {
                   onChange={(e) => handleFilterChange('toDate', e.target.value)}
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="status">Status</Label>
                 <select
@@ -244,7 +376,7 @@ export default function LocationTrackerStatusPage() {
                 </select>
               </div>
             </div>
-            
+
             <div className="flex justify-end mt-4">
               <Button variant="outline" onClick={clearFilters}>
                 Clear Filters
@@ -261,7 +393,7 @@ export default function LocationTrackerStatusPage() {
               Location Tracker Events
             </CardTitle>
             <CardDescription>
-              Showing {events.length} of {pagination.total} events
+              Showing {groupedEvents.length} grouped items from {pagination.total} total events
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -272,7 +404,7 @@ export default function LocationTrackerStatusPage() {
                   <p className="mt-2 text-sm text-muted-foreground">Loading events...</p>
                 </div>
               </div>
-            ) : events.length === 0 ? (
+            ) : groupedEvents.length === 0 ? (
               <div className="text-center py-8">
                 <MapPin className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-lg font-medium text-muted-foreground">No events found</p>
@@ -284,7 +416,7 @@ export default function LocationTrackerStatusPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead 
+                        <TableHead
                           className="cursor-pointer hover:bg-muted/50"
                           onClick={() => handleSort('created_at')}
                         >
@@ -294,40 +426,43 @@ export default function LocationTrackerStatusPage() {
                             <ArrowUpDown className="h-4 w-4" />
                           </div>
                         </TableHead>
-                        <TableHead 
+                        <TableHead
                           className="cursor-pointer hover:bg-muted/50"
                           onClick={() => handleSort('po_number')}
                         >
                           PO Number
                           <ArrowUpDown className="h-4 w-4" />
                         </TableHead>
-                        <TableHead 
+                        <TableHead
                           className="cursor-pointer hover:bg-muted/50"
                           onClick={() => handleSort('item_number')}
                         >
                           Item
                           <ArrowUpDown className="h-4 w-4" />
                         </TableHead>
-                        <TableHead 
-                          className="cursor-pointer hover:bg-muted/50"
-                          onClick={() => handleSort('quantity')}
-                        >
-                          Quantity
-                          <ArrowUpDown className="h-4 w-4" />
-                        </TableHead>
-                        <TableHead 
+                        <TableHead
                           className="cursor-pointer hover:bg-muted/50"
                           onClick={() => handleSort('status')}
                         >
                           Status
                           <ArrowUpDown className="h-4 w-4" />
                         </TableHead>
+                        <TableHead
+                          className="cursor-pointer hover:bg-muted/50"
+                          onClick={() => handleSort('quantity')}
+                        >
+                          Quantity
+                          <ArrowUpDown className="h-4 w-4" />
+                        </TableHead>
                         <TableHead>Location</TableHead>
+                       
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {events.map((event, idx) => (
-                        <TableRow key={`${event.po_number}-${event.item_number}-${event.status}-${event.user_id || 'u'}-${idx}`}>
+                      {groupedEvents
+                        .slice((pagination.page - 1) * pagination.limit, pagination.page * pagination.limit)
+                        .map((event, idx) => (
+                        <TableRow key={`${event.po_number}-${event.item_number}-${event.status}-${idx}`}>
                           <TableCell>
                             <div>
                               <div className="font-medium">
@@ -341,21 +476,30 @@ export default function LocationTrackerStatusPage() {
                           <TableCell className="font-mono">{event.po_number}</TableCell>
                           <TableCell>
                             <div>
-                              <div className="font-medium">{event.item_number}</div>
                               {event.item_description && (
-                                <div className="text-sm text-muted-foreground">
+                                <div className="font-medium">
                                   {event.item_description}
                                 </div>
                               )}
+                              <div className="text-sm text-muted-foreground">{event.item_number}</div>
                             </div>
-                          </TableCell>
-                          <TableCell className="text-center font-medium">
-                            {Number(event.quantity || 0).toLocaleString()}
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               {getStatusIcon(event.status)}
                               {getStatusBadge(event.status)}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center font-medium">
+                            <div className="flex flex-col items-center gap-1">
+                              <span className={`font-bold ${event.status === 'in' ? 'text-green-600' : 'text-red-600'}`}>
+                                {event.quantity.toLocaleString()}
+                              </span>
+                              {event.is_grouped && (
+                                <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-300">
+                                  {event.event_count} events
+                                </Badge>
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>
@@ -372,37 +516,36 @@ export default function LocationTrackerStatusPage() {
                   </Table>
                 </div>
 
-                 {/* Pagination */}
-                 {(pagination.totalPages > 1 || pagination.total > 0) && (
-                   <div className="mt-4 flex items-center justify-between gap-4">
-                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                       <span>Rows per page:</span>
-                       <select
-                         className="rounded border px-2 py-1"
-                         value={pagination.limit}
-                         onChange={(e) => handleLimitChange(Number(e.target.value))}
-                       >
-                         <option value={10}>10</option>
-                         <option value={20}>20</option>
-                         <option value={50}>50</option>
-                         <option value={100}>100</option>
-                       </select>
-                       <span>
-                         Showing {(pagination.page - 1) * pagination.limit + 1}
-                         - {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
-                       </span>
-                     </div>
-                     <div>
-                       <Pagination
-                         currentPage={pagination.page}
-                         totalPages={pagination.totalPages || Math.max(1, Math.ceil((pagination.total || 0) / pagination.limit))}
-                         totalItems={pagination.total}
-                         itemsPerPage={pagination.limit}
-                         onPageChange={handlePageChange}
-                       />
-                     </div>
-                   </div>
-                 )}
+                {/* Pagination */}
+                {(pagination.totalPages > 1 || pagination.total > 0) && (
+                  <div className="mt-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span>Rows per page:</span>
+                      <select
+                        className="rounded border px-2 py-1"
+                        value={pagination.limit}
+                        onChange={(e) => handleLimitChange(Number(e.target.value))}
+                      >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                      <span>
+                        Showing {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} grouped items
+                      </span>
+                    </div>
+                    <div>
+                      <Pagination
+                        currentPage={pagination.page}
+                        totalPages={pagination.totalPages || Math.max(1, Math.ceil((pagination.total || 0) / pagination.limit))}
+                        totalItems={pagination.total}
+                        itemsPerPage={pagination.limit}
+                        onPageChange={handlePageChange}
+                      />
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </CardContent>

@@ -14,7 +14,6 @@ const getSocketInstance = () => {
     const serverModule = require('../../../server');
     return serverModule.io;
   } catch (error) {
-    console.log('Socket.IO not available yet');
     return null;
   }
 };
@@ -29,174 +28,171 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
   try {
     await client.query('BEGIN');
 
-    // Normalize user_id from reader value if needed
-    if (!scanData.user_id && typeof scanData.value === 'number') {
-      scanData.user_id = scanData.value;
+    const user_id = Number(scanData.value);
+    if (!user_id) {
+      throw new ApiError(
+        httpStatus.BAD_REQUEST,
+        'User ID (value) is required in the payload'
+      );
     }
-
-    // Note: location_code column was removed from location_tracker table
-    // We'll use deviceId as a reference but not store it in the table
-    const location_name = `Device ${scanData.deviceId}`;
 
     const hexCodeQuery = `
       SELECT po_number, lot_no, item_number, quantity
       FROM po_hex_codes
-      WHERE hex_code = $1
-      LIMIT 1;
+      WHERE hex_code = $1;
     `;
     const hexCodeResult = await client.query(hexCodeQuery, [scanData.epc]);
 
     if (hexCodeResult.rows.length === 0) {
-      throw new ApiError(httpStatus.NOT_FOUND, `EPC "${scanData.epc}" not found in po_hex_codes`);
+      throw new ApiError(
+        httpStatus.NOT_FOUND,
+        `EPC/Hex code "${scanData.epc}" not found in po_hex_codes table`
+      );
     }
 
-    const { po_number, item_number, quantity } = hexCodeResult.rows[0];
+    const hexCodeData = hexCodeResult.rows[0];
+    const { po_number, lot_no, item_number, quantity } = hexCodeData;
 
-    // Step 3️⃣: Check Redis for 30-second cooldown (scoped to EPC+PO+Item+User)
-    const compositeKey = `${scanData.epc}|${po_number}|${item_number}|${scanData.user_id || ''}`;
-    const cooldownCheck = await locationTrackingRedis.canProcessScan(
-      compositeKey
-    );
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [po_number]);
 
-    let shouldCreateRecord = false;
+    const poQuery = `
+      SELECT 
+        po.po_number, 
+        po.po_description as description, 
+        po.supplier_name, 
+        po.po_type as status,
+        COALESCE(
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'item_number', poi.item_number,
+              'quantity', poi.quantity,
+              'created_at', poi.created_at
+            )
+          ) FILTER (WHERE poi.id IS NOT NULL),
+          '[]'::json
+        ) as po_items_array
+      FROM purchase_orders po
+      LEFT JOIN po_items poi ON po.id = poi.po_id
+      WHERE po.po_number = $1
+      GROUP BY po.id, po.po_number, po.po_description, po.supplier_name, po.po_type;
+    `;
+    const poResult = await client.query(poQuery, [po_number]);
+
+    if (poResult.rows.length === 0) {
+      throw new ApiError(
+        httpStatus.NOT_FOUND,
+        `Purchase order "${po_number}" not found`
+      );
+    }
+
+    const poData = poResult.rows[0];
+
+    const itemQuery = `
+      SELECT item_description, primary_uom
+      FROM items
+      WHERE item_number = $1;
+    `;
+    const itemResult = await client.query(itemQuery, [item_number]);
+
+    if (itemResult.rows.length === 0) {
+      throw new ApiError(
+        httpStatus.NOT_FOUND,
+        `Item "${item_number}" not found in items table`
+      );
+    }
+
+    const itemData = itemResult.rows[0];
+
+    const userQuery = `
+      SELECT name
+      FROM users
+      WHERE id = $1;
+    `;
+    const userResult = await client.query(userQuery, [user_id]);
+
+    if (userResult.rows.length === 0) {
+      throw new ApiError(
+        httpStatus.NOT_FOUND,
+        `User with ID "${user_id}" not found`
+      );
+    }
+
+    const userData = userResult.rows[0];
+    const location_name = userData.name; 
+
+
+    // Step 3️⃣: Check for cooldown and determine status
+    let shouldCreateLocationTracker = true;
     let newStatus: 'in' | 'out' = 'in';
-    let trackerRecord!: ILocationTracker;
 
-    if (cooldownCheck.canProcess) {
-      // Extra safety: enforce 30s cooldown from DB if Redis is unavailable or missed the key
-      const recentRecordQuery = `
-        SELECT id, status, created_at
-        FROM location_tracker
-        WHERE epc = $1 AND po_number = $2 AND item_number = $3 AND user_id ${scanData.user_id ? '= $4' : 'IS NULL'}
-        ORDER BY created_at DESC
-        LIMIT 1;
-      `;
-      const recentRecordParams: any[] = [scanData.epc, po_number, item_number];
-      if (scanData.user_id) recentRecordParams.push(scanData.user_id);
-      const recentRecordResult = await client.query(recentRecordQuery, recentRecordParams);
-      if (recentRecordResult.rows.length > 0) {
-        const last = recentRecordResult.rows[0];
-        const lastCreatedAt = new Date(last.created_at);
-        const secondsSinceLast = Math.floor((Date.now() - lastCreatedAt.getTime()) / 1000);
-        if (secondsSinceLast < 60) {
-          // Within 60 seconds → skip creating new record
-          shouldCreateRecord = false;
-          trackerRecord = {
-            id: last.id,
-            po_number,
-            item_number,
-            quantity,
-            status: last.status,
-            epc: scanData.epc,
-            user_id: scanData.user_id,
-            created_at: last.created_at,
-            updated_at: last.created_at,
-          } as ILocationTracker;
-          console.log(`🚫 DB: Composite ${compositeKey} within 60s (${secondsSinceLast}s) → skipping insert`);
-          // Short-circuit: skip toggle/insert path entirely
-        }
-      }
+    // Check if same EPC+user_id+item_number exists
+    const locationTrackerQuery = `
+      SELECT id, status, created_at
+      FROM location_tracker
+      WHERE epc = $1 AND user_id = $2 AND item_number = $3
+      ORDER BY created_at DESC
+      LIMIT 1;
+    `;
+    const trackerResult = await client.query(locationTrackerQuery, [
+      scanData.epc, user_id, item_number
+    ]);
 
-      if (!trackerRecord) {
-        // Can process the scan - check database for last status if Redis doesn't have it
-        let lastStatus = cooldownCheck.lastStatus;
-        
-        if (!lastStatus) {
-          // Get last status from database for this composite
-          const lastRecordQuery = `
-            SELECT status, created_at
-            FROM location_tracker
-            WHERE epc = $1 AND po_number = $2 AND item_number = $3 AND user_id ${scanData.user_id ? '= $4' : 'IS NULL'}
-            ORDER BY created_at DESC
-            LIMIT 1;
-          `;
-          const lastParams: any[] = [scanData.epc, po_number, item_number];
-          if (scanData.user_id) lastParams.push(scanData.user_id);
-          const lastRecordResult = await client.query(lastRecordQuery, lastParams);
-
-          if (lastRecordResult.rows.length > 0) {
-            lastStatus = lastRecordResult.rows[0].status;
-            console.log(`📊 Database: Found last status (composite) = ${lastStatus}`);
-          }
-        }
-
-        if (lastStatus) {
-          // Toggle status from last known status
-          newStatus = lastStatus === 'in' ? 'out' : 'in';
-          console.log(`🔄 Status Toggle: ${lastStatus} → ${newStatus}`);
-        } else {
-          // First time scan, default to 'in'
-          newStatus = 'in';
-          console.log('✨ First scan → creating "in" record');
-        }
-        shouldCreateRecord = true;
+    if (trackerResult.rows.length > 0) {
+      const lastRecord = trackerResult.rows[0];
+      const timeDiff = Date.now() - new Date(lastRecord.created_at).getTime();
+      
+      if (timeDiff < 60000) { // 60 seconds cooldown
+        shouldCreateLocationTracker = false;
+      } else {
+        // Toggle status after 60 seconds
+        newStatus = lastRecord.status === 'in' ? 'out' : 'in';
       }
     } else {
-      // Still in cooldown period
-      shouldCreateRecord = false;
-      newStatus = cooldownCheck.lastStatus || 'in';
-      console.log(`🚫 Within 60s cooldown → skipping (${cooldownCheck.timeRemaining}s remaining, last status: ${cooldownCheck.lastStatus})`);
-      
-      // Get the last record from database for response
-      const lastRecordQuery = `
-        SELECT id, status, created_at
+      // Check if same EPC + same item_number exists with different location
+      const differentLocationQuery = `
+        SELECT id, status, created_at, user_id
         FROM location_tracker
-        WHERE epc = $1 AND po_number = $2 AND item_number = $3 AND user_id ${scanData.user_id ? '= $4' : 'IS NULL'}
+        WHERE epc = $1 AND item_number = $2 AND user_id != $3
         ORDER BY created_at DESC
         LIMIT 1;
       `;
-      const lastParams: any[] = [scanData.epc, po_number, item_number];
-      if (scanData.user_id) lastParams.push(scanData.user_id);
-      const lastRecordResult = await client.query(lastRecordQuery, lastParams);
+      const differentLocationResult = await client.query(differentLocationQuery, [
+        scanData.epc, item_number, user_id
+      ]);
 
-      if (lastRecordResult.rows.length > 0) {
-        const last = lastRecordResult.rows[0];
-        trackerRecord = {
-          id: last.id,
-          po_number,
-          item_number,
-          quantity,
-          status: last.status,
-          epc: scanData.epc,
-          user_id: scanData.user_id,
-          created_at: last.created_at,
-          updated_at: last.created_at
-        } as ILocationTracker;
+      if (differentLocationResult.rows.length > 0) {
+        // Different location - create new record with 'in' status
+        newStatus = 'in';
+      } else {
+        // First time scan for this EPC+item combination
+        newStatus = 'in';
       }
     }
 
-    // Step 4️⃣: Insert new record if needed
-    if (shouldCreateRecord) {
-      const insertQuery = `
-        INSERT INTO location_tracker (
-          po_number, item_number, quantity, status, epc, user_id, created_at, updated_at
-        )
+    // Insert location tracker record
+    let trackerInsertResult = null;
+    if (shouldCreateLocationTracker) {
+      const insertTrackerQuery = `
+        INSERT INTO location_tracker (epc, user_id, po_number, item_number, quantity, status, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
         RETURNING *;
       `;
-      const insertResult = await client.query(insertQuery, [
-        po_number,
-        item_number,
-        quantity,
+      trackerInsertResult = await client.query(insertTrackerQuery, [
+        scanData.epc, 
+        user_id, 
+        po_number, 
+        item_number, 
+        Number(quantity), 
         newStatus,
-        scanData.epc,
-        scanData.user_id || null,
         getBangladeshTimeISO()
       ]);
-      trackerRecord = insertResult.rows[0];
-      console.log(`✅ Inserted → ID=${trackerRecord.id}, status=${trackerRecord.status}`);
-      
-      // Record the scan in Redis for cooldown tracking with composite key
-      await locationTrackingRedis.recordScan(
-        compositeKey,
-        newStatus
-      );
     }
 
     await client.query('COMMIT');
 
     // Step 5️⃣: Emit socket event only for new records
-    if (shouldCreateRecord && trackerRecord?.id) {
+    if (shouldCreateLocationTracker && trackerInsertResult?.rows[0]) {
+      const trackerRecord = trackerInsertResult.rows[0];
       const io = getSocketInstance?.();
       if (io) {
         // Resolve location name from users table by user_id
@@ -206,8 +202,7 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
             const userRes = await pool.query('SELECT name FROM users WHERE id = $1 LIMIT 1', [trackerRecord.user_id]);
             userLocationName = userRes.rows[0]?.name;
           } catch (e) {
-            const err: any = e;
-            console.log('ℹ️ Could not resolve user name for location:', err?.message || err);
+            // Could not resolve user name for location
           }
         }
 
@@ -216,6 +211,7 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
           id: trackerRecord.id,
           po_number: trackerRecord.po_number,
           item_number: trackerRecord.item_number,
+          item_description: itemData.item_description,
           quantity: trackerRecord.quantity,
           status: trackerRecord.status,
           epc: trackerRecord.epc,
@@ -225,16 +221,12 @@ const processLocationScan = async (scanData: ILocationScanData): Promise<ILocati
           timestamp: getBangladeshTimeISO(),
           activity_text: activityText,
         });
-        console.log(`📡 [Socket] Emitted: ${activityText}`);
       }
-    } else {
-      console.log('ℹ️ No socket emit — skipped within 30s');
     }
 
-    return trackerRecord;
+    return trackerInsertResult?.rows[0] || null;
   } catch (error: any) {
     await client.query('ROLLBACK');
-    console.error('❌ [LocationScan] Error:', error);
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, error.message);
   } finally {
     client.release();
@@ -276,19 +268,13 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
 
         if (timeDiff < 30000) {
           // Less than 30 seconds - don't create new entry, item still in same status
-          console.log(`⏱️ Same EPC combination exists <30s ago - skipping new entry. Item remains "${lastRecord.status}"`);
           shouldCreateRecord = false;
           newStatus = lastRecord.status;
         } else {
           // More than 30 seconds - toggle the status (in -> out, out -> in)
           newStatus = lastRecord.status === 'in' ? 'out' : 'in';
-          console.log(`🔄 Same EPC combination >30s ago - toggling status: ${lastRecord.status} → ${newStatus} for EPC ${data.epc}`);
-          console.log(`⏰ Time difference: ${timeDiff}ms (${Math.round(timeDiff / 1000)}s)`);
           shouldCreateRecord = true; // We need to create a new record with the toggled status
         }
-      } else {
-        // No existing EPC combination - create new entry with requested status
-        console.log(`✨ New EPC combination - creating "${data.status}" entry for EPC ${data.epc}`);
       }
     } else {
       // Legacy logic for non-EPC tracking
@@ -306,9 +292,6 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
         // If last post was 30s ago or more, toggle the status; otherwise keep requested
         if (timeDiff >= 30000) {
           newStatus = lastRecord.status === 'in' ? 'out' : 'in';
-          console.log(`🔄 Status toggled (>=30s) for EPC ${data.epc}: ${lastRecord.status} → ${newStatus}`);
-        } else {
-          console.log(`⏱️ Last activity <30s; keeping requested status: ${newStatus}`);
         }
       }
     }
@@ -329,7 +312,6 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
             data.po_number,
             data.item_number
           ]);
-          console.log(`🗑️ Deleted existing records for EPC combination`);
         }
 
         const insertQuery = `
@@ -338,7 +320,6 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
           RETURNING *;
         `;
 
-        console.log('📝 [LocationTracker] Inserting row with computed status:', newStatus);
         const result = await client.query(insertQuery, [
           data.po_number,
           data.item_number,
@@ -350,9 +331,7 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
         ]);
 
         trackerRecord = result.rows[0];
-        console.log(`✅ [LocationTracker] Record created with ID: ${trackerRecord.id}`);
       } catch (insertError: any) {
-        console.error('❌ [LocationTracker] Insert failed:', insertError);
         throw insertError;
       }
     } else {
@@ -368,22 +347,9 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
         created_at: new Date(getBangladeshTimeISO()),
         updated_at: new Date(getBangladeshTimeISO())
       };
-
-      console.log(`ℹ️ No new location tracker created - item remains "${newStatus}" for EPC ${data.epc}`);
     }
 
     await client.query('COMMIT');
-
-    console.log('✅ [LocationTracker] Insert successful:', {
-      id: trackerRecord.id,
-      po_number: trackerRecord.po_number,
-      item_number: trackerRecord.item_number,
-      quantity: trackerRecord.quantity,
-      status: trackerRecord.status,
-      epc: trackerRecord.epc,
-      user_id: trackerRecord.user_id,
-      created_at: trackerRecord.created_at,
-    });
 
     // Emit live update via socket with human-readable text (only for new records)
     if (
@@ -408,13 +374,10 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
             timestamp: getBangladeshTimeISO(),
             activity_text
           });
-          console.log(`📡 Live tracker update emitted for EPC: ${trackerRecord.epc}`);
         }
       } catch (socketError) {
-        console.error('Socket emit error (non-critical):', socketError);
+        // Socket emit error (non-critical)
       }
-    } else {
-      console.log(`📡 No socket event emitted - 30s rule applied or no new record created`);
     }
 
     return trackerRecord;
@@ -422,7 +385,6 @@ const createLocationTracker = async (data: ICreateLocationTracker): Promise<ILoc
     await client.query('ROLLBACK');
 
     if (error instanceof ApiError) throw error;
-    console.error('❌ [LocationTracker] Failed to create record:', error);
     throw new ApiError(
       httpStatus.INTERNAL_SERVER_ERROR,
       'Failed to create location tracker record'
@@ -445,12 +407,6 @@ const getAllLocationTrackers = async (
     sortBy = 'created_at',
     sortOrder = 'desc',
   } = paginationHelpers.calculatePagination(paginationOptions);
-
-  console.log('🔍 [LocationTracker] Request parameters:', {
-    filters,
-    paginationOptions,
-    calculated: { page, limit, skip, sortBy, sortOrder }
-  });
 
   const conditions: string[] = [];
   const values: any[] = [];
@@ -503,8 +459,6 @@ const getAllLocationTrackers = async (
   const safeSortBy = allowedSortFields.includes(sortBy) && !['page', 'limit', 'skip'].includes(sortBy) ? sortBy : 'created_at';
   const safeSortOrder = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
-  console.log('🔍 [LocationTracker] Sort parameters:', { sortBy, safeSortBy, sortOrder, safeSortOrder });
-
   const query = `
     SELECT 
       lt.po_number,
@@ -538,11 +492,7 @@ const getAllLocationTrackers = async (
 
   values.push(limit, skip);
 
-  console.log('🔍 [LocationTracker] Final query:', query);
-  console.log('🔍 [LocationTracker] Query values:', values);
-
   const result = await pool.query(query, values);
-  console.log(`✅ [LocationTracker] Query executed successfully, returned ${result.rows.length} rows`);
 
   // Get total count (count grouped rows with same-second aggregation)
   const countQuery = `
@@ -632,7 +582,6 @@ const getLocationTrackerStats = async (): Promise<ILocationTrackerStats> => {
 
 const getCurrentLocationStatus = async (): Promise<ILocationStatus[]> => {
   try {
-    console.log('🔍 Fetching current location status...');
 
     const query = `
       SELECT DISTINCT ON (po_number, item_number)
@@ -647,11 +596,9 @@ const getCurrentLocationStatus = async (): Promise<ILocationStatus[]> => {
     `;
 
     const result = await pool.query(query);
-    console.log(`✅ Found ${result.rows.length} location status records`);
 
     return result.rows;
   } catch (error: any) {
-    console.error('❌ Error in getCurrentLocationStatus:', error.message);
     throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, 'Failed to get current location status');
   }
 };

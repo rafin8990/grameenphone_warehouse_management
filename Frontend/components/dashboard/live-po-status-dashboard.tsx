@@ -183,27 +183,6 @@ export function LivePOStatusDashboard({ isConnected }: LivePOStatusDashboardProp
 
   return (
     <div className="space-y-6">
-      {/* Connection Status */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Live PO Status Dashboard
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-              <Badge variant={isConnected ? "default" : "destructive"}>
-                {isConnected ? 'Live Connected' : 'Disconnected'}
-              </Badge>
-            </div>
-          </div>
-          <CardDescription>
-            Real-time Purchase Order status tracking
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
       {/* PO Status Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>

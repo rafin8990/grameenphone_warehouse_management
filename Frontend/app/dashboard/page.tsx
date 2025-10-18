@@ -205,53 +205,16 @@ export default function DashboardPage() {
           <Image src="/dashboard/litelogo.svg" alt="center" width={300} height={120} className="object-contain" />
           <Image src="/dashboard/left.svg" alt="right" width={150} height={80} className="object-contain" />
         </div>
-        {/* Key Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-          <AssetPerformanceCard
-            value={assetPerformance.value}
-            status={assetPerformance.status}
-            statusIcon={assetPerformance.statusIcon}
-            chart={assetPerformance.chart}
-          />
-          <AssetQuantityCard
-            value={assetQuantity.value}
-            status={assetQuantity.status}
-            statusIcon={assetQuantity.statusIcon}
-            chart={assetQuantity.chart}
-          />
-        </div>
 
-        {/* Live Item Scan Dashboard */}
-        <div className="mb-8">
-          <LiveItemScanDashboard isConnected={isConnected} />
-        </div>
 
-        {/* Live Stock Dashboard */}
-        <div className="mb-8">
-          <LiveStockDashboard isConnected={isConnected} />
-        </div>
 
         {/* Live PO Status Dashboard */}
         <div className="mb-8">
           <LivePOStatusDashboard isConnected={isConnected} />
         </div>
 
-        {/* Purchase Orders Section */}
-        <div className="mb-8">
-          <PurchaseOrdersTable limit={5} showViewAll={true} />
-        </div>
+     
 
-        {/* Assets Table */}
-        <div className="mb-8">
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h3 className="text-lg font-semibold mb-4">Assets Table</h3>
-            <DashboardAssetTable
-              assets={assets}
-              onEdit={() => {}}
-              onDelete={() => {}}
-            />
-          </div>
-        </div>
       </div>
     </PageLayout>
   )

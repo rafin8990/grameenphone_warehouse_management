@@ -480,16 +480,54 @@ export default function WarehouseGatePage() {
 
        
 
+        {/* RFID Scan Design - Show when no events */}
+        {events.length === 0 && (
+          <Card className="border-2 border-dashed border-gray-300 bg-gray-50">
+            <CardContent className="py-16">
+              <div className="text-center">
+                <div className="mx-auto w-24 h-24 bg-blue-100 rounded-full flex items-center justify-center mb-6">
+                  <Radio className="h-12 w-12 text-blue-600 animate-pulse" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-700 mb-4">Ready to Scan RFID</h3>
+                <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                  Place your RFID tag near the reader to start scanning items. 
+                  Scanned items will appear here in real-time.
+                </p>
+                <div className="flex items-center justify-center gap-4 text-sm">
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span>Scanner is active and ready</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                    <span className={isConnected ? 'text-green-600' : 'text-red-600'}>
+                      {isConnected ? 'Connected' : 'Disconnected'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Recent Events Summary */}
         {events.length > 0 && (
           <Card className="border-2 border-blue-500 bg-blue-50">
             <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Activity className="h-5 w-5 text-blue-600" />
-                Recent Activity Summary
-                <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
-                  {events.length} Events
-                </Badge>
+              <CardTitle className="text-lg flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-blue-600" />
+                  Recent Activity Summary
+                  <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
+                    {events.length} Events
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  <span className={isConnected ? 'text-green-600' : 'text-red-600'}>
+                    {isConnected ? 'Connected' : 'Disconnected'}
+                  </span>
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -589,132 +627,6 @@ export default function WarehouseGatePage() {
           </Card>
         )}
 
-        {/* Unified Event History */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-3 text-xl">
-              <Clock className="h-6 w-6" />
-              Live Event Feed ({events.length})
-            </CardTitle>
-            <CardDescription className="text-base">
-              Real-time feed of all warehouse events (scans, location tracking, stock updates)
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {events.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <Clock className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                <p className="text-sm font-medium">Waiting for events...</p>
-                <p className="text-xs">All warehouse events will appear here in real-time</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-white border-b">
-                    <tr>
-                      <th className="text-left p-2 font-medium text-gray-600 text-xs">Time</th>
-                      <th className="text-left p-2 font-medium text-gray-600 text-xs">PO Number</th>
-                      <th className="text-left p-2 font-medium text-gray-600 text-xs">Item</th>
-                      <th className="text-left p-2 font-medium text-gray-600 text-xs">Description</th>
-                      <th className="text-right p-2 font-medium text-gray-600 text-xs">Ordered</th>
-                      <th className="text-right p-2 font-medium text-gray-600 text-xs">Received</th>
-                      <th className="text-right p-2 font-medium text-gray-600 text-xs">Scanned</th>
-                      <th className="text-right p-2 font-medium text-gray-600 text-xs">Remaining</th>
-                      <th className="text-center p-2 font-medium text-gray-600 text-xs">Status</th>
-                      <th className="text-left p-2 font-medium text-gray-600 text-xs">Location</th>
-                      <th className="text-left p-2 font-medium text-gray-600 text-xs">EPC</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {events.map((event, index) => (
-                      <tr 
-                        key={event.id || index} 
-                        className={`border-b hover:bg-gray-50 transition-all ${
-                          index === 0 ? 'bg-green-50 animate-pulse' : ''
-                        } ${index < 5 ? 'bg-blue-50' : ''}`}
-                      >
-                        <td className="p-2">
-                          <div className="text-xs">
-                            <p className="font-medium">{formatTime(event.timestamp)}</p>
-                            <p className="text-xs text-gray-500">{formatDate(event.timestamp)}</p>
-                          </div>
-                        </td>
-                        <td className="p-2">
-                          <span className="font-mono text-xs text-blue-600 font-medium">
-                            {event.po_number}
-                          </span>
-                        </td>
-                        <td className="p-2">
-                          <div className="flex items-center gap-1">
-                            <div className={`p-1 rounded-full ${getEventBgColor(event)}`}>
-                              <div className={getEventColor(event)}>
-                                {getEventIcon(event)}
-                              </div>
-                            </div>
-                            <span className="font-mono text-xs font-semibold">
-                              {event.item_number}
-                            </span>
-                            {event.isDuplicate && (
-                              <Badge variant="outline" className="text-xs bg-orange-100 text-orange-700 border-orange-300">
-                                Duplicate
-                              </Badge>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-2">
-                          <div className="max-w-xs truncate" title={event.item_description}>
-                            <span className="text-xs">{event.item_description || 'N/A'}</span>
-                          </div>
-                        </td>
-                        <td className="p-2 text-right">
-                          <span className="text-xs text-blue-600 font-semibold">
-                            {event.ordered_quantity ? event.ordered_quantity.toLocaleString() : 'N/A'}
-                          </span>
-                        </td>
-                        <td className="p-2 text-right">
-                          <span className="text-xs text-green-600 font-semibold">
-                            {event.quantity ? event.quantity.toLocaleString() : 'N/A'}
-                          </span>
-                        </td>
-                        <td className="p-2 text-right">
-                          <span className="text-xs text-purple-600 font-semibold">
-                            {event.scanned_quantity ? `+${event.scanned_quantity.toLocaleString()}` : 'N/A'}
-                          </span>
-                        </td>
-                        <td className="p-2 text-right">
-                          <span className="text-xs text-orange-600 font-semibold">
-                            {event.remaining_quantity !== undefined ? event.remaining_quantity.toLocaleString() : 'N/A'}
-                          </span>
-                        </td>
-                        <td className="p-2 text-center">
-                          <Badge 
-                            variant="outline" 
-                            className={`text-xs ${getLocationStatusBadgeColor(event)}`}
-                          >
-                            {getLocationStatusText(event)}
-                          </Badge>
-                        </td>
-                        <td className="p-2">
-                          <div className="flex items-center gap-1">
-                            <MapPin className="h-2 w-2 text-blue-500" />
-                            <span className="text-xs">
-                              {event.location_name || event.location_code || 'Unknown'}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="p-2">
-                          <span className="font-mono text-xs text-gray-500">
-                            {event.epc ? `${event.epc.substring(0, 8)}...` : 'N/A'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </PageLayout>
   );

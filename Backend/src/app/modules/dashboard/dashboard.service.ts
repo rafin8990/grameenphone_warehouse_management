@@ -62,7 +62,6 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
         const result = await pool.query(query, params);
         return parseInt(result.rows[0].count, 10);
       } catch (error) {
-        console.warn(`Table query failed: ${query}`, error);
         return 0;
       }
     };
@@ -96,20 +95,8 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
       totalStockItems = stockStats.total_items || 0;
       totalStockQuantity = stockStats.total_quantity || 0;
     } catch (stockError) {
-      console.warn('Failed to get stock stats:', stockError);
+      // Failed to get stock stats
     }
-
-    console.log('Dashboard Stats:', {
-      totalLocations,
-      totalAvailableRfid,
-      totalVendors,
-      totalItems,
-      totalAvailableRequisitions,
-      totalPurchaseOrders,
-      pendingPurchaseOrders,
-      totalStockItems,
-      totalStockQuantity,
-    });
 
     return {
       totalLocations,
@@ -123,7 +110,6 @@ const getDashboardStats = async (): Promise<DashboardStats> => {
       totalStockQuantity,
     };
   } catch (error) {
-    console.error('Error fetching dashboard statistics:', error);
     // Return default values instead of throwing error
     return {
       totalLocations: 0,
